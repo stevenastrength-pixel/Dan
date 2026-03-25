@@ -1,0 +1,15 @@
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      # Persist the SQLite database across container restarts and updates
+      - novel-data:/app/data
+    environment:
+      - DATABASE_URL=file:/app/data/novel.db
+      - NODE_ENV=production
+    restart: unless-stopped
+
+volumes:
+  novel-data:

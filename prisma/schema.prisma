@@ -1,0 +1,140 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Projects ─────────────────────────────────────────────────────────────────
+
+model Project {
+  id          Int       @id @default(autoincrement())
+  name        String
+  slug        String    @unique
+  description String    @default("")
+  createdAt   DateTime  @default(now())
+
+  chapters     Chapter[]
+  characters   Character[]
+  worldEntries WorldEntry[]
+  documents    ProjectDocument[]
+  polls        Poll[]
+}
+
+model ProjectDocument {
+  id        Int      @id @default(autoincrement())
+  projectId Int      @default(1)
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  key       String
+  title     String
+  content   String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, key])
+}
+
+// ─── Chapters ─────────────────────────────────────────────────────────────────
+
+model Chapter {
+  id        String   @id @default(cuid())
+  projectId Int      @default(1)
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title     String
+  order     Int      @default(0)
+  content   String   @default("")
+  synopsis  String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  versions ChapterVersion[]
+  comments Comment[]
+}
+
+model ChapterVersion {
+  id        String   @id @default(cuid())
+  chapterId String
+  chapter   Chapter  @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  content   String
+  savedBy   String   @default("Unknown")
+  createdAt DateTime @default(now())
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  chapterId String
+  chapter   Chapter  @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  text      String
+  author    String   @default("Unknown")
+  resolved  Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+// ─── Characters ───────────────────────────────────────────────────────────────
+
+model Character {
+  id          String   @id @default(cuid())
+  projectId   Int      @default(1)
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String
+  role        String   @default("Supporting")
+  description String   @default("")
+  notes       String   @default("")
+  traits      String   @default("[]")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ─── World Building ───────────────────────────────────────────────────────────
+
+model WorldEntry {
+  id          String   @id @default(cuid())
+  projectId   Int      @default(1)
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String
+  type        String   @default("Location")
+  description String   @default("")
+  notes       String   @default("")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ─── Settings (global, not per-project) ──────────────────────────────────────
+
+model Settings {
+  id              Int      @id @default(1)
+  styleGuide      String   @default("")
+  aiProvider      String   @default("anthropic")
+  aiApiKey        String   @default("")
+  openClawBaseUrl String   @default("")
+  openClawApiKey  String   @default("")
+  openClawAgentId String   @default("")
+  updatedAt       DateTime @updatedAt
+}
+
+// ─── Polls ────────────────────────────────────────────────────────────────────
+
+model Poll {
+  id        Int      @id @default(autoincrement())
+  projectId Int      @default(1)
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  question  String
+  options   String   @default("[]")
+  createdAt DateTime @default(now())
+  createdBy String
+  status    String   @default("OPEN")
+  votes     Vote[]
+}
+
+model Vote {
+  id        Int      @id @default(autoincrement())
+  pollId    Int
+  poll      Poll     @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  voterName String
+  optionIdx Int
+  createdAt DateTime @default(now())
+
+  @@unique([pollId, voterName])
+}
