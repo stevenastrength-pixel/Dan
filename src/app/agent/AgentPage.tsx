@@ -49,8 +49,7 @@ export default function GlobalChatPage() {
   const [mentionIndex, setMentionIndex] = useState(0)
 
   const lastIdRef = useRef<number>(0)
-  const suppressScrollRef = useRef(false)
-  const prevScrollHeightRef = useRef<number | null>(null)
+  const anchorIdRef = useRef<number | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -72,15 +71,14 @@ export default function GlobalChatPage() {
     })
   }, [])
 
-  // Auto-scroll — skip when loading older messages; restore position instead
+  // Auto-scroll — anchor to first old message after loading older; scroll to bottom otherwise
   useEffect(() => {
-    if (prevScrollHeightRef.current !== null && scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight - prevScrollHeightRef.current
-      prevScrollHeightRef.current = null
-      suppressScrollRef.current = false
+    if (anchorIdRef.current !== null) {
+      const el = document.getElementById(`msg-${anchorIdRef.current}`)
+      el?.scrollIntoView({ block: 'start' })
+      anchorIdRef.current = null
       return
     }
-    if (suppressScrollRef.current) { suppressScrollRef.current = false; return }
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, thinking])
 
@@ -106,8 +104,7 @@ export default function GlobalChatPage() {
       const data = await res.json()
       const older: GlobalMessage[] = Array.isArray(data) ? data : []
       if (older.length > 0) {
-        suppressScrollRef.current = true
-        prevScrollHeightRef.current = scrollContainerRef.current?.scrollHeight ?? null
+        anchorIdRef.current = messages[0].id
         setMessages(prev => [...older.filter(m => !prev.some(p => p.id === m.id)), ...prev])
       }
       setHasMore(older.length >= 50)
@@ -261,7 +258,7 @@ export default function GlobalChatPage() {
           const isMe = msg.author === username
           const isDaneel = msg.author === DANEEL
           return (
-            <div key={msg.id} className={`flex gap-2 ${isMe ? 'justify-end' : 'justify-start'}`}>
+            <div key={msg.id} id={`msg-${msg.id}`} className={`flex gap-2 ${isMe ? 'justify-end' : 'justify-start'}`}>
               {!isMe && <Avatar name={msg.author} />}
               <div className={`max-w-[80%] rounded-xl px-4 py-2.5 text-sm border ${
                 isDaneel

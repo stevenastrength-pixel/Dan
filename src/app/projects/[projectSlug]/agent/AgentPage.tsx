@@ -492,8 +492,7 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
   const [loadingOlder, setLoadingOlder] = useState(false)
 
   const lastIdRef = useRef<number>(0)
-  const suppressScrollRef = useRef(false)
-  const prevScrollHeightRef = useRef<number | null>(null)
+  const anchorIdRef = useRef<number | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -504,15 +503,14 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
         .filter(u => u.toLowerCase().startsWith(mentionQuery.toLowerCase()))
     : []
 
-  // Auto-scroll — skip when loading older messages; restore position instead
+  // Auto-scroll — anchor to first old message after loading older; scroll to bottom otherwise
   useEffect(() => {
-    if (prevScrollHeightRef.current !== null && scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight - prevScrollHeightRef.current
-      prevScrollHeightRef.current = null
-      suppressScrollRef.current = false
+    if (anchorIdRef.current !== null) {
+      const el = document.getElementById(`msg-${anchorIdRef.current}`)
+      el?.scrollIntoView({ block: 'start' })
+      anchorIdRef.current = null
       return
     }
-    if (suppressScrollRef.current) { suppressScrollRef.current = false; return }
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, thinking])
 
@@ -539,8 +537,7 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
       const older: ProjectMessage[] = Array.isArray(data) ? data : []
       console.log('[loadOlder] beforeId:', oldest, '→ got', older.length, 'messages')
       if (older.length > 0) {
-        suppressScrollRef.current = true
-        prevScrollHeightRef.current = container?.scrollHeight ?? null
+        anchorIdRef.current = messages[0].id
         setMessages(prev => [...older.filter(m => !prev.some(p => p.id === m.id)), ...prev])
       }
       setHasMore(older.length >= 50)
@@ -719,7 +716,7 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
           const isMe = msg.author === username
           const isDaneel = msg.author === DANEEL
           return (
-            <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+            <div key={msg.id} id={`msg-${msg.id}`} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-[80%] rounded-xl px-4 py-2.5 text-sm border ${
                 isDaneel
                   ? 'bg-slate-900/90 border-slate-700/60 text-slate-200 dark:text-slate-200'
