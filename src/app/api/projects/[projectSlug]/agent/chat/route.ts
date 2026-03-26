@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import { prisma } from '@/lib/prisma'
 import { streamAIChat, streamOpenClaw, type OpenClawContext } from '@/lib/ai'
 
