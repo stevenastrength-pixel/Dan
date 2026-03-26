@@ -12,7 +12,11 @@ const DEFAULT_OPENAI_TOOL_MODEL = 'gpt-5.4-nano'
 export type ToolDef = {
   name: string
   description: string
-  input_schema: Record<string, unknown>
+  input_schema: {
+    type: 'object'
+    properties: Record<string, unknown>
+    required?: string[]
+  }
 }
 
 export type ToolCall = {
@@ -175,16 +179,16 @@ export async function callAnthropicWithTools(params: {
 
     if (response.stop_reason === 'end_turn' || response.stop_reason !== 'tool_use') {
       const text = response.content
-        .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
-        .map(b => b.text)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .filter((b: any) => b.type === 'text')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .map((b: any) => b.text as string)
         .join('')
       return { text, toolCalls }
     }
 
-    const toolUseBlocks = response.content.filter(
-      (b): b is { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> } =>
-        b.type === 'tool_use'
-    )
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const toolUseBlocks = response.content.filter((b: any) => b.type === 'tool_use') as any[]
 
     currentMessages = [...currentMessages, { role: 'assistant', content: response.content }]
 
@@ -250,10 +254,12 @@ export async function callOpenAIWithTools(params: {
 
     const toolResultMessages = []
     for (const tc of choice.message.tool_calls ?? []) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const tcAny = tc as any
       let input: Record<string, unknown> = {}
-      try { input = JSON.parse(tc.function.arguments) } catch {}
-      const result = await onToolCall(tc.function.name, input)
-      toolCalls.push({ name: tc.function.name, input, result })
+      try { input = JSON.parse(tcAny.function.arguments) } catch {}
+      const result = await onToolCall(tcAny.function.name, input)
+      toolCalls.push({ name: tcAny.function.name, input, result })
       toolResultMessages.push({
         role: 'tool' as const,
         tool_call_id: tc.id,
