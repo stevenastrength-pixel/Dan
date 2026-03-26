@@ -133,22 +133,39 @@ function TaskModal({ task, projectSlug, username, onClose, onUpdate }: {
 
 // ─── Task Card ────────────────────────────────────────────────────────────────
 
-function TaskCard({ task, projectSlug, onUpdate, onDelete, onOpen, isAdmin, currentUser }: {
+function TaskCard({ task, projectSlug, onUpdate, onDelete, onOpen, isAdmin, currentUser, confirmDelete }: {
   task: Task
   projectSlug: string
   onUpdate: (updated: Task) => void
-  onDelete: (id: number) => void
+  onDelete: (id: number, notify: boolean) => void
   onOpen: (task: Task) => void
   isAdmin: boolean
   currentUser: string
+  confirmDelete: boolean
 }) {
+  const [pendingDelete, setPendingDelete] = useState(false)
   const canDelete = isAdmin || currentUser === task.assignedTo
+
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (confirmDelete && !pendingDelete) { setPendingDelete(true); return }
+    onDelete(task.id, true)
+  }
 
   return (
     <div
-      onClick={() => onOpen(task)}
+      onClick={() => { if (!pendingDelete) onOpen(task) }}
       className={`rounded-xl border p-4 transition-all cursor-pointer hover:border-slate-600 ${task.status === 'DONE' ? 'opacity-60 border-slate-800/40 bg-slate-900/30' : 'border-slate-700/60 bg-slate-900/60'}`}
     >
+      {pendingDelete && (
+        <div className="flex items-center justify-between mb-3 px-1" onClick={e => e.stopPropagation()}>
+          <span className="text-xs text-red-400">Cancel this task?</span>
+          <div className="flex gap-2">
+            <button onClick={handleDelete} className="px-2.5 py-1 bg-red-600 text-white rounded-lg text-xs font-medium hover:bg-red-500 transition-colors">Yes, cancel</button>
+            <button onClick={e => { e.stopPropagation(); setPendingDelete(false) }} className="px-2.5 py-1 border border-slate-700 rounded-lg text-xs text-slate-400 hover:border-slate-600 transition-colors">Keep</button>
+          </div>
+        </div>
+      )}
       <div className="flex items-start gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
@@ -160,8 +177,8 @@ function TaskCard({ task, projectSlug, onUpdate, onDelete, onOpen, isAdmin, curr
                 {STATUS_LABELS[task.status]}
               </span>
               {canDelete && (
-                <button onClick={e => { e.stopPropagation(); onDelete(task.id) }} title="Cancel task"
-                  className="w-5 h-5 flex items-center justify-center rounded text-slate-600 hover:text-red-400 hover:bg-red-400/10 transition-colors text-sm">✕</button>
+                <button onClick={handleDelete} title="Cancel task"
+                  className="w-6 h-6 flex items-center justify-center rounded-md text-slate-500 hover:text-red-400 hover:bg-red-400/10 transition-colors text-base font-bold">✕</button>
               )}
             </div>
           </div>
@@ -179,15 +196,16 @@ function TaskCard({ task, projectSlug, onUpdate, onDelete, onOpen, isAdmin, curr
   )
 }
 
-function TaskGroup({ title, tasks, projectSlug, onUpdate, onDelete, onOpen, isAdmin, currentUser }: {
+function TaskGroup({ title, tasks, projectSlug, onUpdate, onDelete, onOpen, isAdmin, currentUser, confirmDelete }: {
   title: string
   tasks: Task[]
   projectSlug: string
   onUpdate: (t: Task) => void
-  onDelete: (id: number) => void
+  onDelete: (id: number, notify: boolean) => void
   onOpen: (t: Task) => void
   isAdmin: boolean
   currentUser: string
+  confirmDelete: boolean
 }) {
   const [collapsed, setCollapsed] = useState(title === 'Done')
   if (tasks.length === 0) return null
@@ -204,7 +222,7 @@ function TaskGroup({ title, tasks, projectSlug, onUpdate, onDelete, onOpen, isAd
         <div className="space-y-2">
           {tasks.map(t => (
             <TaskCard key={t.id} task={t} projectSlug={projectSlug}
-              onUpdate={onUpdate} onDelete={onDelete} onOpen={onOpen} isAdmin={isAdmin} currentUser={currentUser} />
+              onUpdate={onUpdate} onDelete={onDelete} onOpen={onOpen} isAdmin={isAdmin} currentUser={currentUser} confirmDelete={confirmDelete} />
           ))}
         </div>
       )}
@@ -220,6 +238,7 @@ export default function TasksPage({ project }: { project: { name: string; slug: 
   const [showAll, setShowAll] = useState(false)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [clearConfirm, setClearConfirm] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(true)
 
   useEffect(() => {
     const stored = localStorage.getItem('dan-username')
@@ -251,10 +270,22 @@ export default function TasksPage({ project }: { project: { name: string; slug: 
     setAllTasks(prev => prev.map(t => t.id === updated.id ? updated : t))
   }
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = async (id: number, notify = false) => {
+    const task = allTasks.find(t => t.id === id)
     await fetch(`/api/projects/${project.slug}/tasks/${id}`, { method: 'DELETE' })
     setTasks(prev => prev.filter(t => t.id !== id))
     setAllTasks(prev => prev.filter(t => t.id !== id))
+    broadcastRefresh()
+    if (notify && task && task.status !== 'DONE') {
+      await fetch(`/api/projects/${project.slug}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          author: username ?? task.assignedTo,
+          content: `🗑 Task cancelled without response: **${task.title}** (assigned to @${task.assignedTo})\n@Daneel`,
+        }),
+      })
+    }
   }
 
   const broadcastRefresh = () => {
@@ -332,6 +363,13 @@ export default function TasksPage({ project }: { project: { name: string; slug: 
               </button>
             )
           )}
+          <button onClick={() => setConfirmDelete(v => !v)} title="Toggle cancel confirmation"
+            className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-700 rounded-lg text-xs font-medium text-slate-400 hover:border-slate-600 hover:text-slate-300 transition-colors">
+            <span className={`w-6 h-3.5 rounded-full transition-colors relative inline-block ${confirmDelete ? 'bg-emerald-600' : 'bg-slate-700'}`}>
+              <span className={`absolute top-0.5 w-2.5 h-2.5 rounded-full bg-white transition-all ${confirmDelete ? 'left-[13px]' : 'left-0.5'}`} />
+            </span>
+            Confirm ✕
+          </button>
           {isAdmin && (
             <button onClick={() => setShowAll(v => !v)}
               className="px-3 py-1.5 border border-slate-700 rounded-lg text-xs font-medium text-slate-400 hover:border-slate-600 hover:text-slate-300 transition-colors">
@@ -353,11 +391,11 @@ export default function TasksPage({ project }: { project: { name: string; slug: 
             ) : (
               <>
                 <TaskGroup title="In Progress" tasks={myInProgress} projectSlug={project.slug}
-                  onUpdate={handleUpdate} onDelete={handleDelete} onOpen={setSelectedTask} isAdmin={isAdmin} currentUser={displayUsername} />
+                  onUpdate={handleUpdate} onDelete={handleDelete} onOpen={setSelectedTask} isAdmin={isAdmin} currentUser={displayUsername} confirmDelete={confirmDelete} />
                 <TaskGroup title="To Do" tasks={myTodo} projectSlug={project.slug}
-                  onUpdate={handleUpdate} onDelete={handleDelete} onOpen={setSelectedTask} isAdmin={isAdmin} currentUser={displayUsername} />
+                  onUpdate={handleUpdate} onDelete={handleDelete} onOpen={setSelectedTask} isAdmin={isAdmin} currentUser={displayUsername} confirmDelete={confirmDelete} />
                 <TaskGroup title="Done" tasks={myDone} projectSlug={project.slug}
-                  onUpdate={handleUpdate} onDelete={handleDelete} onOpen={setSelectedTask} isAdmin={isAdmin} currentUser={displayUsername} />
+                  onUpdate={handleUpdate} onDelete={handleDelete} onOpen={setSelectedTask} isAdmin={isAdmin} currentUser={displayUsername} confirmDelete={confirmDelete} />
               </>
             )}
           </>
@@ -380,7 +418,7 @@ export default function TasksPage({ project }: { project: { name: string; slug: 
                   <div className="space-y-2 ml-1">
                     {userTasks.filter(t => t.status !== 'DONE').map(t => (
                       <TaskCard key={t.id} task={t} projectSlug={project.slug}
-                        onUpdate={handleUpdate} onDelete={handleDelete} onOpen={setSelectedTask} isAdmin={isAdmin} currentUser={displayUsername} />
+                        onUpdate={handleUpdate} onDelete={handleDelete} onOpen={setSelectedTask} isAdmin={isAdmin} currentUser={displayUsername} confirmDelete={confirmDelete} />
                     ))}
                     {userTasks.filter(t => t.status === 'DONE').length > 0 && (
                       <p className="text-xs text-slate-600 px-1">{userTasks.filter(t => t.status === 'DONE').length} completed</p>
