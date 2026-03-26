@@ -1008,6 +1008,7 @@ function PollCard({ poll, username, onVote, onClose, onDelete, onlineUsers, isAd
 export default function AgentPage({ project }: { project: ProjectInfo }) {
   const [mounted, setMounted] = useState(false)
   const [username, setUsername] = useState<string | null>(null)
+  const [authLoaded, setAuthLoaded] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
   const [documents, setDocuments] = useState<ProjectDocument[]>([])
   const [polls, setPolls] = useState<Poll[]>([])
@@ -1029,12 +1030,12 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
   useEffect(() => {
     setMounted(true)
     fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(d => {
-      if (!d) return
-      if (d.role === 'admin') setIsAdmin(true)
-      if (d.username) {
+      if (d?.role === 'admin') setIsAdmin(true)
+      if (d?.username) {
         setUsername(d.username)
         localStorage.setItem('dan-username', d.username)
       }
+      setAuthLoaded(true)
     })
   }, [])
 
@@ -1166,7 +1167,7 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
 
   return (
     <div className="flex flex-col h-full bg-slate-950">
-      {!username && <UsernameModal onSave={name => { localStorage.setItem('dan-username', name); setUsername(name) }} />}
+      {authLoaded && !username && <UsernameModal onSave={name => { localStorage.setItem('dan-username', name); setUsername(name) }} />}
       {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}
 
       {/* Header */}
