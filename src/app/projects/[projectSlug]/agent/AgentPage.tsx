@@ -493,6 +493,7 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
 
   const lastIdRef = useRef<number>(0)
   const suppressScrollRef = useRef(false)
+  const prevScrollHeightRef = useRef<number | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -503,8 +504,14 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
         .filter(u => u.toLowerCase().startsWith(mentionQuery.toLowerCase()))
     : []
 
-  // Auto-scroll — skip when loading older messages
+  // Auto-scroll — skip when loading older messages; restore position instead
   useEffect(() => {
+    if (prevScrollHeightRef.current !== null && scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight - prevScrollHeightRef.current
+      prevScrollHeightRef.current = null
+      suppressScrollRef.current = false
+      return
+    }
     if (suppressScrollRef.current) { suppressScrollRef.current = false; return }
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, thinking])
@@ -524,8 +531,6 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
   const loadOlder = async () => {
     if (loadingOlder || messages.length === 0) return
     setLoadingOlder(true)
-    const container = scrollContainerRef.current
-    const prevScrollHeight = container?.scrollHeight ?? 0
     try {
       const oldest = messages[0].id
       const res = await fetch(`/api/projects/${projectSlug}/messages?beforeId=${oldest}`)
@@ -535,10 +540,8 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
       console.log('[loadOlder] beforeId:', oldest, '→ got', older.length, 'messages')
       if (older.length > 0) {
         suppressScrollRef.current = true
+        prevScrollHeightRef.current = container?.scrollHeight ?? null
         setMessages(prev => [...older.filter(m => !prev.some(p => p.id === m.id)), ...prev])
-        requestAnimationFrame(() => {
-          if (container) container.scrollTop = container.scrollHeight - prevScrollHeight
-        })
       }
       setHasMore(older.length >= 50)
     } catch (e) { console.error('[loadOlder] error:', e) }
