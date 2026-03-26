@@ -9,12 +9,19 @@ export async function GET(_: Request, { params }: { params: { projectSlug: strin
   const project = await prisma.project.findUnique({ where: { slug: params.projectSlug } })
   if (!project) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const all = await prisma.userPresence.findMany({ where: { projectId: project.id } })
+  // Delete stale anonymous/blank entries
+  await prisma.userPresence.deleteMany({
+    where: { projectId: project.id, username: { in: ['', 'Anonymous', 'anonymous'] } },
+  })
+
   const cutoff = new Date(Date.now() - ONLINE_THRESHOLD_MS)
+  const recent = await prisma.userPresence.findMany({
+    where: { projectId: project.id, lastSeen: { gte: cutoff } },
+  })
 
   return NextResponse.json({
-    online: all.filter(u => u.lastSeen >= cutoff).map(u => u.username),
-    all: all.map(u => u.username),
+    online: recent.map(u => u.username),
+    all: recent.map(u => u.username),
   })
 }
 
