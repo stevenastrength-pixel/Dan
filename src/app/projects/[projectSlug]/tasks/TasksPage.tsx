@@ -260,6 +260,7 @@ export default function TasksPage({ project }: { project: { name: string; slug: 
   const [allTasks, setAllTasks] = useState<Task[]>([])
   const [showAll, setShowAll] = useState(false)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
+  const [clearConfirm, setClearConfirm] = useState(false)
 
   useEffect(() => {
     const stored = localStorage.getItem('dan-username')
@@ -297,6 +298,15 @@ export default function TasksPage({ project }: { project: { name: string; slug: 
     setAllTasks(prev => prev.filter(t => t.id !== id))
   }
 
+  const clearMyTasks = async () => {
+    for (const t of tasks) {
+      await fetch(`/api/projects/${project.slug}/tasks/${t.id}`, { method: 'DELETE' })
+    }
+    setTasks([])
+    setAllTasks(prev => prev.filter(t => t.assignedTo !== username))
+    setClearConfirm(false)
+  }
+
   // Group tasks by status for "my tasks" view
   const myTodo = tasks.filter(t => t.status === 'TODO')
   const myInProgress = tasks.filter(t => t.status === 'IN_PROGRESS')
@@ -327,12 +337,34 @@ export default function TasksPage({ project }: { project: { name: string; slug: 
           <h1 className="text-sm font-semibold text-slate-200">{project.name}</h1>
           <p className="text-xs text-slate-600">Tasks{username ? ` — ${username}` : ''}</p>
         </div>
-        {isAdmin && (
-          <button onClick={() => setShowAll(v => !v)}
-            className="px-3 py-1.5 border border-slate-700 rounded-lg text-xs font-medium text-slate-400 hover:border-slate-600 hover:text-slate-300 transition-colors">
-            {showAll ? 'My Tasks' : 'All Tasks'}
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {!showAll && tasks.length > 0 && (
+            clearConfirm ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-400">Clear all your tasks?</span>
+                <button onClick={clearMyTasks}
+                  className="px-2.5 py-1.5 bg-red-600 text-white rounded-lg text-xs font-medium hover:bg-red-500 transition-colors">
+                  Yes, clear
+                </button>
+                <button onClick={() => setClearConfirm(false)}
+                  className="px-2.5 py-1.5 border border-slate-700 rounded-lg text-xs font-medium text-slate-400 hover:border-slate-600 hover:text-slate-300 transition-colors">
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button onClick={() => setClearConfirm(true)}
+                className="px-3 py-1.5 border border-slate-700 rounded-lg text-xs font-medium text-slate-500 hover:border-red-500/40 hover:text-red-400 transition-colors">
+                Clear all
+              </button>
+            )
+          )}
+          {isAdmin && (
+            <button onClick={() => setShowAll(v => !v)}
+              className="px-3 py-1.5 border border-slate-700 rounded-lg text-xs font-medium text-slate-400 hover:border-slate-600 hover:text-slate-300 transition-colors">
+              {showAll ? 'My Tasks' : 'All Tasks'}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">

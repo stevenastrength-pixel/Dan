@@ -32,7 +32,7 @@ type MenuState =
   | { type: 'none' }
   | { type: 'menu'; projectId: number }
   | { type: 'rename'; projectId: number; name: string }
-  | { type: 'delete'; projectId: number }
+  | { type: 'delete'; projectId: number; confirmText: string }
 
 export default function ProjectsPage() {
   const router = useRouter()
@@ -291,7 +291,7 @@ export default function ProjectsPage() {
                         <button
                           onClick={(e) => {
                             e.stopPropagation()
-                            setMenu({ type: 'delete', projectId: project.id })
+                            setMenu({ type: 'delete', projectId: project.id, confirmText: '' })
                           }}
                           className="w-full text-left px-3 py-2 text-sm text-red-400 hover:bg-slate-800 rounded-lg transition-colors"
                         >
@@ -331,15 +331,27 @@ export default function ProjectsPage() {
                       </div>
                     )}
 
-                    {isDeleting && (
+                    {isDeleting && menu.type === 'delete' && (
                       <div className="p-1 space-y-2">
                         <p className="text-xs text-slate-300 px-1 leading-snug">
                           Delete <span className="font-semibold text-white">{project.name}</span>? This cannot be undone.
                         </p>
+                        <p className="text-[11px] text-slate-500 px-1">Type <span className="font-mono font-bold text-slate-300">DELETE</span> to confirm.</p>
+                        <input
+                          autoFocus
+                          value={menu.confirmText}
+                          onChange={(e) => setMenu({ ...menu, confirmText: e.target.value })}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && menu.confirmText === 'DELETE') deleteProject(project.slug)
+                            if (e.key === 'Escape') setMenu({ type: 'none' })
+                          }}
+                          placeholder="DELETE"
+                          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-slate-200 font-mono placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-red-500/40"
+                        />
                         <div className="flex gap-2">
                           <button
                             onClick={() => deleteProject(project.slug)}
-                            disabled={actionBusy}
+                            disabled={actionBusy || menu.confirmText !== 'DELETE'}
                             className="flex-1 py-1.5 bg-red-600 text-white rounded-lg text-xs font-medium hover:bg-red-500 disabled:opacity-40 transition-colors"
                           >
                             {actionBusy ? 'Deleting…' : 'Delete'}
