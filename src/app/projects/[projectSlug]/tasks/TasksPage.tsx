@@ -133,7 +133,7 @@ function TaskModal({ task, projectSlug, username, onClose, onUpdate }: {
 
 // ─── Task Card ────────────────────────────────────────────────────────────────
 
-function TaskCard({ task, projectSlug, onUpdate, onDelete, onOpen, isAdmin, currentUser, allTasks }: {
+function TaskCard({ task, projectSlug, onUpdate, onDelete, onOpen, isAdmin, currentUser }: {
   task: Task
   projectSlug: string
   onUpdate: (updated: Task) => void
@@ -141,41 +141,7 @@ function TaskCard({ task, projectSlug, onUpdate, onDelete, onOpen, isAdmin, curr
   onOpen: (task: Task) => void
   isAdmin: boolean
   currentUser: string
-  allTasks: Task[]
 }) {
-  const [updating, setUpdating] = useState(false)
-
-  const advanceStatus = async (e: React.MouseEvent) => {
-    e.stopPropagation()
-    setUpdating(true)
-    const next = STATUS_NEXT[task.status]
-    const res = await fetch(`/api/projects/${projectSlug}/tasks/${task.id}`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: next }),
-    })
-    if (res.ok) {
-      onUpdate({ ...task, status: next })
-      if (next === 'DONE') {
-        const bc = new BroadcastChannel('dan-notifications')
-        bc.postMessage('refresh')
-        bc.close()
-        // Count remaining active tasks for this user (excluding the one just completed)
-        const remaining = allTasks.filter(
-          t => t.assignedTo === currentUser && t.status !== 'DONE' && t.id !== task.id
-        ).length
-        await fetch(`/api/projects/${projectSlug}/messages`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            author: currentUser,
-            content: `✓ Task completed with no additional notes: **${task.title}**\n(${currentUser} has ${remaining} active task${remaining === 1 ? '' : 's'} remaining — ${remaining === 0 ? 'queue is now empty' : 'do not assign new tasks unless asked'})\n@Daneel`,
-          }),
-        })
-      }
-    }
-    setUpdating(false)
-  }
-
   const canDelete = isAdmin || currentUser === task.assignedTo
 
   return (
@@ -184,30 +150,18 @@ function TaskCard({ task, projectSlug, onUpdate, onDelete, onOpen, isAdmin, curr
       className={`rounded-xl border p-4 transition-all cursor-pointer hover:border-slate-600 ${task.status === 'DONE' ? 'opacity-60 border-slate-800/40 bg-slate-900/30' : 'border-slate-700/60 bg-slate-900/60'}`}
     >
       <div className="flex items-start gap-3">
-        <button onClick={advanceStatus} disabled={updating} title="Advance status"
-          className={`mt-0.5 w-5 h-5 rounded border-2 shrink-0 flex items-center justify-center transition-colors ${
-            task.status === 'DONE'
-              ? 'border-emerald-500 bg-emerald-500/20'
-              : task.status === 'IN_PROGRESS'
-              ? 'border-amber-500 bg-amber-500/10'
-              : 'border-slate-600 hover:border-emerald-500'
-          }`}>
-          {task.status === 'DONE' && <span className="text-emerald-400 text-xs leading-none">✓</span>}
-          {task.status === 'IN_PROGRESS' && <span className="text-amber-400 text-[8px] leading-none">▶</span>}
-        </button>
-
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
             <p className={`text-sm font-medium leading-snug ${task.status === 'DONE' ? 'line-through text-slate-500' : 'text-slate-200'}`}>
               {task.title}
             </p>
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-2 shrink-0">
               <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${STATUS_COLORS[task.status]}`}>
                 {STATUS_LABELS[task.status]}
               </span>
               {canDelete && (
-                <button onClick={e => { e.stopPropagation(); onDelete(task.id) }} title="Delete task"
-                  className="text-slate-600 hover:text-red-400 transition-colors text-xs">✕</button>
+                <button onClick={e => { e.stopPropagation(); onDelete(task.id) }} title="Cancel task"
+                  className="w-5 h-5 flex items-center justify-center rounded text-slate-600 hover:text-red-400 hover:bg-red-400/10 transition-colors text-sm">✕</button>
               )}
             </div>
           </div>
@@ -225,7 +179,7 @@ function TaskCard({ task, projectSlug, onUpdate, onDelete, onOpen, isAdmin, curr
   )
 }
 
-function TaskGroup({ title, tasks, projectSlug, onUpdate, onDelete, onOpen, isAdmin, currentUser, allTasks }: {
+function TaskGroup({ title, tasks, projectSlug, onUpdate, onDelete, onOpen, isAdmin, currentUser }: {
   title: string
   tasks: Task[]
   projectSlug: string
@@ -234,7 +188,6 @@ function TaskGroup({ title, tasks, projectSlug, onUpdate, onDelete, onOpen, isAd
   onOpen: (t: Task) => void
   isAdmin: boolean
   currentUser: string
-  allTasks: Task[]
 }) {
   const [collapsed, setCollapsed] = useState(title === 'Done')
   if (tasks.length === 0) return null
@@ -251,7 +204,7 @@ function TaskGroup({ title, tasks, projectSlug, onUpdate, onDelete, onOpen, isAd
         <div className="space-y-2">
           {tasks.map(t => (
             <TaskCard key={t.id} task={t} projectSlug={projectSlug}
-              onUpdate={onUpdate} onDelete={onDelete} onOpen={onOpen} isAdmin={isAdmin} currentUser={currentUser} allTasks={allTasks} />
+              onUpdate={onUpdate} onDelete={onDelete} onOpen={onOpen} isAdmin={isAdmin} currentUser={currentUser} />
           ))}
         </div>
       )}
@@ -400,11 +353,11 @@ export default function TasksPage({ project }: { project: { name: string; slug: 
             ) : (
               <>
                 <TaskGroup title="In Progress" tasks={myInProgress} projectSlug={project.slug}
-                  onUpdate={handleUpdate} onDelete={handleDelete} onOpen={setSelectedTask} isAdmin={isAdmin} currentUser={displayUsername} allTasks={allTasks} />
+                  onUpdate={handleUpdate} onDelete={handleDelete} onOpen={setSelectedTask} isAdmin={isAdmin} currentUser={displayUsername} />
                 <TaskGroup title="To Do" tasks={myTodo} projectSlug={project.slug}
-                  onUpdate={handleUpdate} onDelete={handleDelete} onOpen={setSelectedTask} isAdmin={isAdmin} currentUser={displayUsername} allTasks={allTasks} />
+                  onUpdate={handleUpdate} onDelete={handleDelete} onOpen={setSelectedTask} isAdmin={isAdmin} currentUser={displayUsername} />
                 <TaskGroup title="Done" tasks={myDone} projectSlug={project.slug}
-                  onUpdate={handleUpdate} onDelete={handleDelete} onOpen={setSelectedTask} isAdmin={isAdmin} currentUser={displayUsername} allTasks={allTasks} />
+                  onUpdate={handleUpdate} onDelete={handleDelete} onOpen={setSelectedTask} isAdmin={isAdmin} currentUser={displayUsername} />
               </>
             )}
           </>
@@ -427,7 +380,7 @@ export default function TasksPage({ project }: { project: { name: string; slug: 
                   <div className="space-y-2 ml-1">
                     {userTasks.filter(t => t.status !== 'DONE').map(t => (
                       <TaskCard key={t.id} task={t} projectSlug={project.slug}
-                        onUpdate={handleUpdate} onDelete={handleDelete} onOpen={setSelectedTask} isAdmin={isAdmin} currentUser={displayUsername} allTasks={allTasks} />
+                        onUpdate={handleUpdate} onDelete={handleDelete} onOpen={setSelectedTask} isAdmin={isAdmin} currentUser={displayUsername} />
                     ))}
                     {userTasks.filter(t => t.status === 'DONE').length > 0 && (
                       <p className="text-xs text-slate-600 px-1">{userTasks.filter(t => t.status === 'DONE').length} completed</p>
