@@ -12,8 +12,14 @@ RUN npm ci
 # Copy all source files
 COPY . .
 
-# Generate Prisma client and build Next.js
+# Generate Prisma client
 RUN npx prisma generate
+
+# Create a temporary database so Next.js can prerender API routes during build
+# The real database is mounted as a volume at runtime
+ENV DATABASE_URL=file:/tmp/build.db
+RUN npx prisma db push
+
 RUN npm run build
 
 EXPOSE 3000
