@@ -50,7 +50,7 @@ function buildAgentSystemPrompt(params: {
     .map((d) => `## ${d.title}\n${d.content}`)
     .join('\n\n---\n\n')
 
-  return `You are Daneel (MG420Bot), the resident AI assistant and control-room operator for the writing project "${project.name}".
+  return `You are Daneel, the resident AI assistant and control-room operator for the writing project "${project.name}".
 ${project.description ? `\nProject: ${project.description}\n` : ''}
 You are the main dashboard for this project: you help the group coordinate, run polls/votes, keep track of project documents, and serve as institutional memory. You know the characters and world as well as the writers do — sometimes better.
 

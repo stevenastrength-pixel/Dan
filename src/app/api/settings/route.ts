@@ -23,6 +23,7 @@ export async function GET() {
   return NextResponse.json({
     styleGuide: '',
     aiProvider: 'anthropic',
+    aiModel: '',
     aiApiKey: '',
     aiApiKeySet: false,
     openClawBaseUrl: '',
@@ -52,6 +53,7 @@ export async function PUT(request: Request) {
     update: {
       styleGuide: body.styleGuide ?? '',
       aiProvider: body.aiProvider ?? 'anthropic',
+      aiModel: body.aiModel ?? '',
       aiApiKey: newApiKey,
       openClawBaseUrl: body.openClawBaseUrl ?? '',
       openClawApiKey: newOpenClawApiKey,
@@ -61,6 +63,7 @@ export async function PUT(request: Request) {
       id: 1,
       styleGuide: body.styleGuide ?? '',
       aiProvider: body.aiProvider ?? 'anthropic',
+      aiModel: body.aiModel ?? '',
       aiApiKey: newApiKey,
       openClawBaseUrl: body.openClawBaseUrl ?? '',
       openClawApiKey: newOpenClawApiKey,

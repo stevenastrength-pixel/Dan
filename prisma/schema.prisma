@@ -21,6 +21,25 @@ model Project {
   worldEntries WorldEntry[]
   documents    ProjectDocument[]
   polls        Poll[]
+  messages     ProjectMessage[]
+}
+
+model ProjectMessage {
+  id        Int      @id @default(autoincrement())
+  projectId Int
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  role      String   // 'user' | 'assistant'
+  author    String
+  content   String
+  createdAt DateTime @default(now())
+}
+
+model UserPresence {
+  projectId Int
+  username  String
+  lastSeen  DateTime @default(now())
+
+  @@id([projectId, username])
 }
 
 model ProjectDocument {
@@ -101,12 +120,25 @@ model WorldEntry {
   updatedAt   DateTime @updatedAt
 }
 
+// ─── Users ────────────────────────────────────────────────────────────────────
+
+model User {
+  id                 Int      @id @default(autoincrement())
+  username           String   @unique
+  passwordHash       String
+  role               String   @default("contributor") // "admin" | "contributor"
+  openClawSessionKey String   @unique @default(cuid())
+  createdAt          DateTime @default(now())
+}
+
 // ─── Settings (global, not per-project) ──────────────────────────────────────
 
 model Settings {
   id              Int      @id @default(1)
+  inviteCode      String   @default("")
   styleGuide      String   @default("")
   aiProvider      String   @default("anthropic")
+  aiModel         String   @default("")
   aiApiKey        String   @default("")
   openClawBaseUrl String   @default("")
   openClawApiKey  String   @default("")

@@ -48,3 +48,91 @@
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #334155; }
+
+/* ── Light mode overrides (html:not(.dark)) ─────────────────────────────────
+   Specificity of html:not(.dark) .class = 0,2,1 which beats Tailwind's 0,1,0
+   so !important is not needed.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* Backgrounds */
+html:not(.dark) .bg-slate-950 { background-color: #ffffff; }
+html:not(.dark) .bg-slate-900 { background-color: #f8fafc; }
+html:not(.dark) .bg-slate-800 { background-color: #f1f5f9; }
+html:not(.dark) .bg-slate-700 { background-color: #e2e8f0; }
+
+/* Opacity-variant backgrounds */
+html:not(.dark) .bg-slate-900\/90 { background-color: #ffffff; }
+html:not(.dark) .bg-slate-900\/60 { background-color: #ffffff; }
+html:not(.dark) .bg-slate-900\/50 { background-color: #f8fafc; }
+html:not(.dark) .bg-slate-900\/40 { background-color: #f8fafc; }
+html:not(.dark) .bg-slate-900\/30 { background-color: #f8fafc; }
+html:not(.dark) .bg-slate-800\/60 { background-color: #f1f5f9; }
+html:not(.dark) .bg-slate-800\/40 { background-color: #f1f5f9; }
+html:not(.dark) .bg-slate-700\/60 { background-color: rgb(226 232 240 / 0.8); }
+html:not(.dark) .bg-emerald-600\/15 { background-color: rgb(209 250 229 / 0.7); }
+html:not(.dark) .bg-emerald-600\/10 { background-color: rgb(209 250 229 / 0.5); }
+
+/* Borders */
+html:not(.dark) .border-slate-900 { border-color: #94a3b8; }
+html:not(.dark) .border-slate-800 { border-color: #94a3b8; }
+html:not(.dark) .border-slate-700 { border-color: #64748b; }
+html:not(.dark) .border-slate-600 { border-color: #475569; }
+
+/* Opacity-variant borders */
+html:not(.dark) .border-slate-800\/60 { border-color: rgb(148 163 184 / 0.9); }
+html:not(.dark) .border-slate-700\/60 { border-color: rgb(100 116 139 / 0.7); }
+html:not(.dark) .border-slate-700\/40 { border-color: rgb(100 116 139 / 0.5); }
+html:not(.dark) .border-emerald-500\/40 { border-color: rgb(16 185 129 / 0.5); }
+html:not(.dark) .border-emerald-500\/30 { border-color: rgb(16 185 129 / 0.6); }
+
+/* Text */
+html:not(.dark) .text-slate-100 { color: #0f172a; }
+html:not(.dark) .text-slate-200 { color: #1e293b; }
+html:not(.dark) .text-slate-300 { color: #334155; }
+html:not(.dark) .text-slate-400 { color: #475569; }
+html:not(.dark) .text-slate-500 { color: #64748b; }
+html:not(.dark) .text-slate-600 { color: #64748b; }
+html:not(.dark) .text-emerald-400 { color: #059669; }
+html:not(.dark) .text-emerald-300 { color: #047857; }
+html:not(.dark) .text-emerald-500 { color: #10b981; }
+
+/* Hover backgrounds */
+html:not(.dark) .hover\:bg-slate-800\/60:hover { background-color: rgb(226 232 240 / 0.7); }
+html:not(.dark) .hover\:bg-slate-800:hover { background-color: #e2e8f0; }
+html:not(.dark) .hover\:bg-slate-700:hover { background-color: #e2e8f0; }
+
+/* Hover text */
+html:not(.dark) .hover\:text-slate-200:hover { color: #1e293b; }
+html:not(.dark) .hover\:text-slate-300:hover { color: #334155; }
+
+/* Hover borders */
+html:not(.dark) .hover\:border-slate-600:hover { border-color: #475569; }
+html:not(.dark) .hover\:border-slate-700:hover { border-color: #64748b; }
+
+/* Sidebar nav buttons — make transparent borders subtly visible in light mode */
+html:not(.dark) aside nav .border-transparent { border-color: rgb(148 163 184 / 0.4); }
+
+/* Placeholder text */
+html:not(.dark) .placeholder\:text-slate-600::placeholder { color: #94a3b8; }
+html:not(.dark) .placeholder\:text-slate-700::placeholder { color: #cbd5e1; }
+
+/* Focus rings */
+html:not(.dark) .focus\:ring-emerald-500\/40:focus { --tw-ring-color: rgb(16 185 129 / 0.4); }
+
+/* ── ProseMirror light mode ────────────────────────────── */
+html:not(.dark) .ProseMirror { color: #334155; }
+html:not(.dark) .ProseMirror p.is-editor-empty:first-child::before { color: #94a3b8; }
+html:not(.dark) .ProseMirror h1,
+html:not(.dark) .ProseMirror h2,
+html:not(.dark) .ProseMirror h3 { color: #0f172a; }
+html:not(.dark) .ProseMirror blockquote { border-left-color: #cbd5e1; color: #64748b; }
+html:not(.dark) .ProseMirror strong { color: #1e293b; }
+html:not(.dark) .ProseMirror code { background: #f1f5f9; color: #0d9488; }
+html:not(.dark) .ProseMirror hr { border-top-color: #e2e8f0; }
+
+/* ── Scrollbar light mode ─────────────────────────────── */
+html:not(.dark) ::-webkit-scrollbar-thumb { background: #cbd5e1; }
+html:not(.dark) ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* ── Poll card light mode ─────────────────────────────── */
+html:not(.dark) .poll-card { background: #ffffff; border-color: #cbd5e1; }

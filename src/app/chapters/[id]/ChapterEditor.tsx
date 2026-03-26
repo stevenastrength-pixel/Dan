@@ -62,7 +62,7 @@ export default function ChapterEditor({ chapter }: { chapter: Chapter }) {
   }, [title])
 
   useEffect(() => {
-    const stored = localStorage.getItem('novel-username')
+    const stored = localStorage.getItem('dan-username')
     if (stored) {
       setUsername(stored)
       usernameRef.current = stored
@@ -116,7 +116,7 @@ export default function ChapterEditor({ chapter }: { chapter: Chapter }) {
   const confirmUsername = () => {
     const val = nameInputRef.current?.value.trim()
     if (!val) return
-    localStorage.setItem('novel-username', val)
+    localStorage.setItem('dan-username', val)
     setUsername(val)
     usernameRef.current = val
     setShowUsernamePrompt(false)

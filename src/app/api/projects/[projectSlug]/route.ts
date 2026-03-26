@@ -24,3 +24,10 @@ export async function PUT(request: Request, { params }: { params: { projectSlug:
   })
   return NextResponse.json(project)
 }
+
+export async function DELETE(_: Request, { params }: { params: { projectSlug: string } }) {
+  const project = await prisma.project.findUnique({ where: { slug: params.projectSlug } })
+  if (!project) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  await prisma.project.delete({ where: { slug: params.projectSlug } })
+  return NextResponse.json({ ok: true })
+}

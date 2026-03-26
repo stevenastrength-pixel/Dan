@@ -14,9 +14,9 @@ async function main() {
   if (!project) {
     project = await prisma.project.create({
       data: {
-        name: 'OMG: Mimir',
-        slug: 'omg-mimir',
-        description: 'The collaborative novel project.',
+        name: 'My Novel',
+        slug: 'my-novel',
+        description: 'A collaborative novel project.',
       },
     })
     console.log(`✓ Created default project: "${project.name}" (id=${project.id})`)

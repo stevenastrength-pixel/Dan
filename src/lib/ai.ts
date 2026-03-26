@@ -1,20 +1,42 @@
 export type AIProvider = 'anthropic' | 'openai' | 'openclaw'
 
-// ─── Anthropic / OpenAI streaming ────────────────────────────────────────────
+// ─── Default models ───────────────────────────────────────────────────────────
+
+const DEFAULT_ANTHROPIC_MODEL = 'claude-opus-4-6'
+const DEFAULT_ANTHROPIC_TOOL_MODEL = 'claude-haiku-4-5-20251001'
+const DEFAULT_OPENAI_MODEL = 'gpt-5.4'
+const DEFAULT_OPENAI_TOOL_MODEL = 'gpt-5.4-nano'
+
+// ─── Shared types ─────────────────────────────────────────────────────────────
+
+export type ToolDef = {
+  name: string
+  description: string
+  input_schema: Record<string, unknown>
+}
+
+export type ToolCall = {
+  name: string
+  input: Record<string, unknown>
+  result: string
+}
+
+// ─── Anthropic / OpenAI streaming (no tools) ─────────────────────────────────
 
 export async function* streamAIChat(params: {
   messages: Array<{ role: 'user' | 'assistant'; content: string }>
   systemPrompt: string
   provider: 'anthropic' | 'openai'
   apiKey: string
+  model?: string
 }): AsyncGenerator<string> {
-  const { messages, systemPrompt, provider, apiKey } = params
+  const { messages, systemPrompt, provider, apiKey, model } = params
 
   if (provider === 'anthropic') {
     const Anthropic = (await import('@anthropic-ai/sdk')).default
     const client = new Anthropic({ apiKey })
     const stream = client.messages.stream({
-      model: 'claude-opus-4-6',
+      model: model || DEFAULT_ANTHROPIC_MODEL,
       max_tokens: 4096,
       system: systemPrompt,
       messages,
@@ -31,7 +53,7 @@ export async function* streamAIChat(params: {
     const OpenAI = (await import('openai')).default
     const client = new OpenAI({ apiKey })
     const stream = await client.chat.completions.create({
-      model: 'gpt-4o',
+      model: model || DEFAULT_OPENAI_MODEL,
       stream: true,
       messages: [
         { role: 'system', content: systemPrompt },
@@ -45,7 +67,7 @@ export async function* streamAIChat(params: {
   }
 }
 
-// ─── OpenClaw / MG420Bot provider ────────────────────────────────────────────
+// ─── OpenClaw provider (streaming chat, no tools) ────────────────────────────
 
 export type OpenClawContext = {
   project: { id: number; slug: string; name: string }
@@ -53,6 +75,7 @@ export type OpenClawContext = {
   characters: Array<{ name: string; role: string; description: string; notes: string }>
   worldEntries: Array<{ name: string; type: string; description: string }>
   styleGuide: string
+  sessionKey?: string
 }
 
 export async function* streamOpenClaw(params: {
@@ -63,27 +86,15 @@ export async function* streamOpenClaw(params: {
   openClawAgentId?: string
   context: OpenClawContext
 }): AsyncGenerator<string> {
-  const {
-    messages,
-    systemPrompt,
-    openClawBaseUrl,
-    openClawApiKey,
-    openClawAgentId,
-    context,
-  } = params
+  const { messages, systemPrompt, openClawBaseUrl, openClawApiKey, openClawAgentId, context } = params
 
-  const url = new URL('/novel-agent', openClawBaseUrl).toString()
+  const url = new URL('/dan-agent', openClawBaseUrl).toString()
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (openClawApiKey) headers['Authorization'] = `Bearer ${openClawApiKey}`
 
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  }
-  if (openClawApiKey) {
-    headers['Authorization'] = `Bearer ${openClawApiKey}`
-  }
-
-  // Full payload sent to the OpenClaw endpoint
   const payload = {
     agentId: openClawAgentId || undefined,
+    sessionKey: context.sessionKey || undefined,
     mode: 'agent',
     project: context.project,
     context: {
@@ -100,11 +111,7 @@ export async function* streamOpenClaw(params: {
 
   let res: Response
   try {
-    res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload),
-    })
+    res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(payload) })
   } catch (err) {
     throw new Error(
       `OpenClaw provider unreachable at ${url}: ${err instanceof Error ? err.message : String(err)}`
@@ -119,18 +126,247 @@ export async function* streamOpenClaw(params: {
     } catch {
       detail = await res.text().catch(() => '')
     }
-    throw new Error(
-      `OpenClaw provider error: ${res.status}${detail ? ' — ' + detail : ''}`
-    )
+    throw new Error(`OpenClaw provider error: ${res.status}${detail ? ' — ' + detail : ''}`)
   }
 
   const data = await res.json()
-
   if (typeof data.reply !== 'string') {
     throw new Error('OpenClaw provider returned an unexpected response shape (expected { reply: string })')
   }
 
   yield data.reply
+}
+
+// ─── Anthropic agentic loop (with tools) ─────────────────────────────────────
+
+/**
+ * Call Claude with tools. Runs the full agentic loop:
+ * send → check for tool_use → execute → send result → get final text.
+ */
+export async function callAnthropicWithTools(params: {
+  messages: Array<{ role: 'user' | 'assistant'; content: unknown }>
+  systemPrompt: string
+  apiKey: string
+  model?: string
+  tools: ToolDef[]
+  onToolCall: (name: string, input: Record<string, unknown>) => Promise<string>
+}): Promise<{ text: string; toolCalls: ToolCall[] }> {
+  const { messages, systemPrompt, apiKey, model, tools, onToolCall } = params
+  const Anthropic = (await import('@anthropic-ai/sdk')).default
+  const client = new Anthropic({ apiKey })
+
+  const toolCalls: ToolCall[] = []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let currentMessages: any[] = [...messages]
+
+  for (let i = 0; i < 10; i++) {
+    console.log(`[tool loop] iteration ${i}, messages: ${currentMessages.length}`)
+    const response = await client.messages.create({
+      model: model || DEFAULT_ANTHROPIC_TOOL_MODEL,
+      max_tokens: 8096,
+      system: systemPrompt,
+      tools: tools.map(t => ({
+        name: t.name,
+        description: t.description,
+        input_schema: t.input_schema,
+      })),
+      messages: currentMessages,
+    })
+
+    if (response.stop_reason === 'end_turn' || response.stop_reason !== 'tool_use') {
+      const text = response.content
+        .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+        .map(b => b.text)
+        .join('')
+      return { text, toolCalls }
+    }
+
+    const toolUseBlocks = response.content.filter(
+      (b): b is { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> } =>
+        b.type === 'tool_use'
+    )
+
+    currentMessages = [...currentMessages, { role: 'assistant', content: response.content }]
+
+    const toolResults = []
+    for (const block of toolUseBlocks) {
+      const result = await onToolCall(block.name, block.input)
+      toolCalls.push({ name: block.name, input: block.input, result })
+      toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result })
+    }
+
+    currentMessages = [...currentMessages, { role: 'user', content: toolResults }]
+  }
+
+  return { text: '(Tool loop limit reached)', toolCalls }
+}
+
+// ─── OpenAI agentic loop (with tools) ────────────────────────────────────────
+
+export async function callOpenAIWithTools(params: {
+  messages: Array<{ role: 'user' | 'assistant'; content: unknown }>
+  systemPrompt: string
+  apiKey: string
+  model?: string
+  tools: ToolDef[]
+  onToolCall: (name: string, input: Record<string, unknown>) => Promise<string>
+}): Promise<{ text: string; toolCalls: ToolCall[] }> {
+  const { messages, systemPrompt, apiKey, model, tools, onToolCall } = params
+  const OpenAI = (await import('openai')).default
+  const client = new OpenAI({ apiKey })
+
+  const toolCalls: ToolCall[] = []
+
+  const openAITools = tools.map(t => ({
+    type: 'function' as const,
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: t.input_schema,
+    },
+  }))
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let currentMessages: any[] = [
+    { role: 'system', content: systemPrompt },
+    ...messages,
+  ]
+
+  for (let i = 0; i < 10; i++) {
+    console.log(`[tool loop openai] iteration ${i}, messages: ${currentMessages.length}`)
+    const response = await client.chat.completions.create({
+      model: model || DEFAULT_OPENAI_TOOL_MODEL,
+      tools: openAITools,
+      messages: currentMessages,
+    })
+
+    const choice = response.choices[0]
+
+    if (choice.finish_reason !== 'tool_calls') {
+      return { text: choice.message.content ?? '', toolCalls }
+    }
+
+    currentMessages = [...currentMessages, choice.message]
+
+    const toolResultMessages = []
+    for (const tc of choice.message.tool_calls ?? []) {
+      let input: Record<string, unknown> = {}
+      try { input = JSON.parse(tc.function.arguments) } catch {}
+      const result = await onToolCall(tc.function.name, input)
+      toolCalls.push({ name: tc.function.name, input, result })
+      toolResultMessages.push({
+        role: 'tool' as const,
+        tool_call_id: tc.id,
+        content: result,
+      })
+    }
+
+    currentMessages = [...currentMessages, ...toolResultMessages]
+  }
+
+  return { text: '(Tool loop limit reached)', toolCalls }
+}
+
+// ─── OpenClaw agentic loop (with tools) ──────────────────────────────────────
+
+/**
+ * Multi-turn tool protocol for OpenClaw.
+ *
+ * DAN sends tool definitions and messages.
+ * The OpenClaw server responds with either:
+ *   { reply: string }                          — final text, done
+ *   { toolCalls: [{id, name, input}] }          — wants tool execution
+ *
+ * When toolCalls are returned, DAN executes them and sends
+ * another request with { toolResults: [{id, result}] } for the server
+ * to continue. Repeats until a final { reply } is received.
+ */
+export async function callOpenClawWithTools(params: {
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>
+  systemPrompt: string
+  openClawBaseUrl: string
+  openClawApiKey?: string
+  openClawAgentId?: string
+  context: OpenClawContext
+  tools: ToolDef[]
+  onToolCall: (name: string, input: Record<string, unknown>) => Promise<string>
+}): Promise<{ text: string; toolCalls: ToolCall[] }> {
+  const {
+    messages, systemPrompt, openClawBaseUrl, openClawApiKey,
+    openClawAgentId, context, tools, onToolCall,
+  } = params
+
+  const url = new URL('/dan-agent', openClawBaseUrl).toString()
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (openClawApiKey) headers['Authorization'] = `Bearer ${openClawApiKey}`
+
+  const toolCalls: ToolCall[] = []
+
+  const post = async (extra: Record<string, unknown>) => {
+    const payload = {
+      agentId: openClawAgentId || undefined,
+      sessionKey: context.sessionKey || undefined,
+      mode: 'agent',
+      project: context.project,
+      context: {
+        documents: context.documents,
+        characters: context.characters,
+        worldEntries: context.worldEntries,
+        styleGuide: context.styleGuide,
+      },
+      messages: [
+        { role: 'system', content: systemPrompt },
+        ...messages,
+      ],
+      tools,
+      ...extra,
+    }
+
+    let res: Response
+    try {
+      res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(payload) })
+    } catch (err) {
+      throw new Error(
+        `OpenClaw unreachable at ${url}: ${err instanceof Error ? err.message : String(err)}`
+      )
+    }
+
+    if (!res.ok) {
+      let detail = ''
+      try { const b = await res.json(); detail = b.error ?? b.message ?? '' } catch {
+        detail = await res.text().catch(() => '')
+      }
+      throw new Error(`OpenClaw error: ${res.status}${detail ? ' — ' + detail : ''}`)
+    }
+
+    return await res.json()
+  }
+
+  // Initial request
+  let data = await post({})
+
+  for (let i = 0; i < 10; i++) {
+    // Final reply
+    if (typeof data.reply === 'string') {
+      return { text: data.reply, toolCalls }
+    }
+
+    // Tool calls requested
+    if (!Array.isArray(data.toolCalls) || data.toolCalls.length === 0) {
+      throw new Error('OpenClaw returned neither reply nor toolCalls.')
+    }
+
+    const toolResults: Array<{ id: string; result: string }> = []
+    for (const tc of data.toolCalls as Array<{ id: string; name: string; input: Record<string, unknown> }>) {
+      const result = await onToolCall(tc.name, tc.input)
+      toolCalls.push({ name: tc.name, input: tc.input, result })
+      toolResults.push({ id: tc.id, result })
+    }
+
+    data = await post({ toolResults })
+  }
+
+  return { text: '(Tool loop limit reached)', toolCalls }
 }
 
 // ─── System prompt builder (shared) ──────────────────────────────────────────
@@ -148,9 +384,7 @@ export function buildSystemPrompt(params: {
       ? characters
           .map((c) => {
             let traits: string[] = []
-            try {
-              traits = JSON.parse(c.traits)
-            } catch {}
+            try { traits = JSON.parse(c.traits) } catch {}
             return `- **${c.name}** (${c.role})${c.description ? `: ${c.description}` : ''}${traits.length > 0 ? ` | Traits: ${traits.join(', ')}` : ''}`
           })
           .join('\n')

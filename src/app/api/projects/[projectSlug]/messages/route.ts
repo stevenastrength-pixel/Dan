@@ -1,0 +1,377 @@
+import { NextResponse } from 'next/server'
+import { prisma } from '@/lib/prisma'
+import { streamAIChat, streamOpenClaw, callAnthropicWithTools, callOpenAIWithTools, callOpenClawWithTools, type OpenClawContext, type ToolDef } from '@/lib/ai'
+import { getUserFromRequest } from '@/lib/auth'
+
+export const maxDuration = 120 // seconds — allow tool-use loop time
+
+const DANEEL_PATTERN = /@daneel\b/i
+const CORE_DOC_ORDER = ['story_bible', 'project_instructions', 'wake_prompt']
+
+// ─── GET: fetch messages (optionally after a given id) ────────────────────────
+
+export async function GET(
+  request: Request,
+  { params }: { params: { projectSlug: string } }
+) {
+  const { searchParams } = new URL(request.url)
+  const afterId = searchParams.get('afterId')
+
+  const project = await prisma.project.findUnique({ where: { slug: params.projectSlug } })
+  if (!project) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  const messages = await prisma.projectMessage.findMany({
+    where: {
+      projectId: project.id,
+      ...(afterId ? { id: { gt: parseInt(afterId) } } : {}),
+    },
+    orderBy: { createdAt: 'asc' },
+    take: afterId ? 100 : 200,
+  })
+
+  return NextResponse.json(messages)
+}
+
+// ─── POST: post a message; call AI only if @Daneel is mentioned ───────────────
+
+export async function POST(
+  request: Request,
+  { params }: { params: { projectSlug: string } }
+) {
+  const { author, content } = await request.json()
+  if (!content?.trim()) return NextResponse.json({ error: 'Empty message' }, { status: 400 })
+
+  const project = await prisma.project.findUnique({ where: { slug: params.projectSlug } })
+  if (!project) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // Save the user message
+  const message = await prisma.projectMessage.create({
+    data: { projectId: project.id, role: 'user', author, content },
+  })
+
+  // Only call AI when @Daneel is mentioned
+  if (!DANEEL_PATTERN.test(content)) {
+    return NextResponse.json({ message, aiMessage: null })
+  }
+
+  // ── Build context and call AI ─────────────────────────────────────────────
+
+  const requestingUser = await getUserFromRequest(request)
+
+  const [settings, characters, worldEntries, documents, recentMessages] = await Promise.all([
+    prisma.settings.findFirst(),
+    prisma.character.findMany({ where: { projectId: project.id }, orderBy: { name: 'asc' } }),
+    prisma.worldEntry.findMany({ where: { projectId: project.id }, orderBy: { name: 'asc' } }),
+    prisma.projectDocument.findMany({ where: { projectId: project.id } }),
+    prisma.projectMessage.findMany({
+      where: { projectId: project.id },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+    }).then(msgs => msgs.reverse()),
+  ])
+
+  const provider = (settings?.aiProvider ?? 'anthropic') as 'anthropic' | 'openai' | 'openclaw'
+
+  if (provider === 'openclaw' && !settings?.openClawBaseUrl?.trim()) {
+    const errMsg = await prisma.projectMessage.create({
+      data: { projectId: project.id, role: 'assistant', author: 'Daneel', content: 'OpenClaw base URL is not configured. Go to Settings.' },
+    })
+    return NextResponse.json({ message, aiMessage: errMsg })
+  }
+
+  if (provider !== 'openclaw' && !settings?.aiApiKey) {
+    const errMsg = await prisma.projectMessage.create({
+      data: { projectId: project.id, role: 'assistant', author: 'Daneel', content: 'No API key configured. Go to Settings to add one.' },
+    })
+    return NextResponse.json({ message, aiMessage: errMsg })
+  }
+
+  const docKeys = documents.map(d => d.key)
+
+  // Build system prompt
+  const characterList = characters.length > 0
+    ? characters.map(c => {
+        let traits: string[] = []
+        try { traits = JSON.parse(c.traits) } catch {}
+        return `- **${c.name}** (${c.role})${c.description ? `: ${c.description}` : ''}${traits.length > 0 ? ` | Traits: ${traits.join(', ')}` : ''}`
+      }).join('\n')
+    : 'No characters defined yet.'
+
+  const grouped = worldEntries.reduce<Record<string, string[]>>((acc, e) => {
+    if (!acc[e.type]) acc[e.type] = []
+    acc[e.type].push(`- **${e.name}**${e.description ? `: ${e.description}` : ''}`)
+    return acc
+  }, {})
+  const worldList = Object.keys(grouped).length > 0
+    ? Object.entries(grouped).map(([type, items]) => `### ${type}s\n${items.join('\n')}`).join('\n\n')
+    : 'No world entries defined yet.'
+
+  const sorted = [...documents].sort((a, b) => {
+    const ai = CORE_DOC_ORDER.indexOf(a.key), bi = CORE_DOC_ORDER.indexOf(b.key)
+    if (ai !== -1 && bi !== -1) return ai - bi
+    if (ai !== -1) return -1
+    if (bi !== -1) return 1
+    return a.title.localeCompare(b.title)
+  })
+  const MAX_DOC_CHARS = 3000
+  const docSections = sorted.filter(d => d.content.trim()).map(d => {
+    const body = d.content.length > MAX_DOC_CHARS
+      ? d.content.slice(0, MAX_DOC_CHARS) + '\n…(truncated)'
+      : d.content
+    return `## ${d.title}\n${body}`
+  }).join('\n\n---\n\n')
+
+  const systemPrompt = `You are Daneel, the AI assistant for the writing project "${project.name}". You are part of a collaborative team chat — multiple writers use this chat to coordinate.${project.description ? `\nProject: ${project.description}` : ''}
+
+You only respond when directly addressed with @Daneel. Keep responses focused and useful. You can see who said what by looking at the author field in each message.
+
+Your personality: sharp, witty, slightly dry, always well-informed. You push back when ideas conflict with established canon. Direct without being rude.
+
+## IMPORTANT: Editing documents
+Available document keys: ${docKeys.join(', ') || 'none yet'}.
+
+## CRITICAL: Creating polls
+When asked to create a poll, you MUST call the create_poll tool — do NOT write poll details in text without calling the tool. Writing about a poll in prose has no effect; only the tool call actually creates one. Call the tool first, then briefly confirm what you created.
+Use create_poll when the team faces a genuine creative decision — plot forks, character choices, world-building options. Keep options clear and mutually exclusive.
+
+For targeted edits (changing a section, adding a line, updating a value):
+1. Call get_document to read the current content.
+2. Call patch_document with the exact text to find and the replacement text.
+
+For full rewrites only (e.g. "rewrite the whole document from scratch"):
+1. Call get_document first.
+2. Call update_document with the complete new content.
+
+NEVER use update_document for targeted edits — large documents will exceed output limits. Prefer patch_document for any change that touches less than the whole document.
+${documents.find(d => d.key === 'style_guide')?.content?.trim() ? `\n## Style Guide\n${documents.find(d => d.key === 'style_guide')!.content}\n` : ''}
+## Project Documents
+${docSections || '(No documents written yet.)'}
+
+## Characters
+${characterList}
+
+## World Building
+${worldList}`
+
+  // Convert recent chat to AI message format (user messages attributed by name)
+  const aiMessages = recentMessages.map(m => ({
+    role: m.role as 'user' | 'assistant',
+    content: m.role === 'user' ? `[${m.author}]: ${m.content}` : m.content,
+  }))
+
+  const openClawContext: OpenClawContext = {
+    project: { id: project.id, slug: project.slug, name: project.name },
+    documents: documents.map(d => ({ key: d.key, title: d.title, content: d.content })),
+    characters: characters.map(c => ({ name: c.name, role: c.role, description: c.description, notes: c.notes })),
+    worldEntries: worldEntries.map(w => ({ name: w.name, type: w.type, description: w.description })),
+    styleGuide: documents.find(d => d.key === 'style_guide')?.content ?? '',
+    sessionKey: requestingUser?.openClawSessionKey,
+  }
+
+  // ── Define tools available to Daneel ─────────────────────────────────────
+
+  const tools: ToolDef[] = [
+    {
+      name: 'get_document',
+      description: 'Read the full current content of a project document before editing it. Always call this before update_document.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          key: {
+            type: 'string',
+            description: `The document key to read. Available keys: ${docKeys.join(', ') || 'story_bible, project_instructions, wake_prompt'}`,
+          },
+        },
+        required: ['key'],
+      },
+    },
+    {
+      name: 'patch_document',
+      description:
+        'Make a targeted edit to a document by replacing a specific piece of text. Use this for any change that does not require rewriting the whole document. Call get_document first to get the exact text to search for.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          key: {
+            type: 'string',
+            description: `The document key to patch. Available keys: ${docKeys.join(', ') || 'story_bible, project_instructions, wake_prompt'}`,
+          },
+          find: {
+            type: 'string',
+            description: 'The exact text to find in the document (must match character-for-character).',
+          },
+          replace: {
+            type: 'string',
+            description: 'The text to replace it with.',
+          },
+          summary: {
+            type: 'string',
+            description: 'One sentence describing what changed.',
+          },
+        },
+        required: ['key', 'find', 'replace', 'summary'],
+      },
+    },
+    {
+      name: 'update_document',
+      description:
+        'Replace the ENTIRE content of a document. Only use this for full rewrites. For targeted edits use patch_document instead.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          key: {
+            type: 'string',
+            description: `The document key to update. Available keys: ${docKeys.join(', ') || 'story_bible, project_instructions, wake_prompt'}`,
+          },
+          content: {
+            type: 'string',
+            description: 'The complete new content for the document.',
+          },
+          summary: {
+            type: 'string',
+            description: 'One or two sentences describing what changed and why.',
+          },
+        },
+        required: ['key', 'content', 'summary'],
+      },
+    },
+    {
+      name: 'create_poll',
+      description: 'Create a poll for the team to vote on. Use this when a creative decision needs team input — plot direction, character choices, world-building options, etc.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          question: {
+            type: 'string',
+            description: 'The poll question.',
+          },
+          options: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'The voting options (minimum 2, maximum 6).',
+          },
+        },
+        required: ['question', 'options'],
+      },
+    },
+  ]
+
+  // ── Tool executor ─────────────────────────────────────────────────────────
+
+  const onToolCall = async (name: string, input: Record<string, unknown>): Promise<string> => {
+    if (name === 'get_document') {
+      const { key } = input as { key: string }
+      // Always fetch fresh from DB so we get the latest content
+      const doc = await prisma.projectDocument.findUnique({
+        where: { projectId_key: { projectId: project.id, key } },
+      })
+      if (!doc) return `Error: document "${key}" not found.`
+      return `Full content of "${doc.title}":\n\n${doc.content || '(empty)'}`
+    }
+    if (name === 'patch_document') {
+      const { key, find, replace, summary } = input as { key: string; find: string; replace: string; summary: string }
+      const doc = await prisma.projectDocument.findUnique({
+        where: { projectId_key: { projectId: project.id, key } },
+      })
+      if (!doc) return `Error: document "${key}" not found.`
+      if (!doc.content.includes(find)) return `Error: the text to find was not found in "${key}". Call get_document to check the exact current content.`
+      const newContent = doc.content.replace(find, replace)
+      await prisma.projectDocument.update({
+        where: { projectId_key: { projectId: project.id, key } },
+        data: { content: newContent },
+      })
+      return `Patched "${doc.title}". ${summary}`
+    }
+    if (name === 'update_document') {
+      const { key, content, summary } = input as { key: string; content: string; summary: string }
+      const doc = documents.find(d => d.key === key)
+      if (!doc) return `Error: document "${key}" not found in this project.`
+      await prisma.projectDocument.update({
+        where: { projectId_key: { projectId: project.id, key } },
+        data: { content: content ?? '' },
+      })
+      return `Successfully updated "${doc.title}". ${summary}`
+    }
+    if (name === 'create_poll') {
+      const { question, options } = input as { question: string; options: string[] }
+      if (!question?.trim()) return 'Error: question is required.'
+      const valid = (options ?? []).filter((o: string) => o?.trim())
+      if (valid.length < 2) return 'Error: at least 2 options are required.'
+      if (valid.length > 6) return 'Error: maximum 6 options allowed.'
+      const newPoll = await prisma.poll.create({
+        data: {
+          projectId: project.id,
+          question: question.trim(),
+          options: JSON.stringify(valid.map((o: string) => o.trim())),
+          createdBy: 'Daneel',
+        },
+        include: { votes: true },
+      })
+      createdPoll = { ...newPoll, options: JSON.parse(newPoll.options) }
+      return `Poll created: "${question.trim()}" with options: ${valid.join(', ')}`
+    }
+    return `Unknown tool: ${name}`
+  }
+
+  // ── Call AI ───────────────────────────────────────────────────────────────
+
+  const aiModel = settings?.aiModel?.trim() || undefined
+
+  let aiContent = ''
+  let pollCreated = false
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let createdPoll: any = null
+  try {
+    let text = ''
+    let toolCallsMade: typeof import('@/lib/ai').ToolCall[] = []
+
+    if (provider === 'anthropic') {
+      const result = await callAnthropicWithTools({
+        messages: aiMessages, systemPrompt, apiKey: settings!.aiApiKey,
+        model: aiModel, tools, onToolCall,
+      })
+      text = result.text
+      toolCallsMade = result.toolCalls
+    } else if (provider === 'openai') {
+      const result = await callOpenAIWithTools({
+        messages: aiMessages, systemPrompt, apiKey: settings!.aiApiKey,
+        model: aiModel, tools, onToolCall,
+      })
+      text = result.text
+      toolCallsMade = result.toolCalls
+    } else {
+      // OpenClaw — use tool protocol if tools are defined
+      const result = await callOpenClawWithTools({
+        messages: aiMessages, systemPrompt,
+        openClawBaseUrl: settings!.openClawBaseUrl,
+        openClawApiKey: settings!.openClawApiKey || undefined,
+        openClawAgentId: settings!.openClawAgentId || undefined,
+        context: openClawContext, tools, onToolCall,
+      })
+      text = result.text
+      toolCallsMade = result.toolCalls
+    }
+
+    pollCreated = toolCallsMade.some(tc => tc.name === 'create_poll')
+    const editLog = toolCallsMade
+      .filter(tc => tc.name === 'update_document' || tc.name === 'patch_document' || tc.name === 'create_poll')
+      .map(tc => {
+        if (tc.name === 'create_poll') {
+          const { question, options } = tc.input as { question: string; options: string[] }
+          return `📊 Created poll: **"${question}"** — ${options.join(' / ')}`
+        }
+        return `📝 Updated **${(tc.input as { key: string }).key}**: ${(tc.input as { summary: string }).summary}`
+      })
+      .join('\n')
+    aiContent = editLog ? `${editLog}\n\n${text}` : text
+  } catch (err) {
+    console.error('[Daneel AI error]', err)
+    aiContent = `Error: ${err instanceof Error ? err.message : 'Unknown error'}`
+  }
+
+  const aiMessage = await prisma.projectMessage.create({
+    data: { projectId: project.id, role: 'assistant', author: 'Daneel', content: aiContent },
+  })
+
+  return NextResponse.json({ message, aiMessage, pollCreated, createdPoll })
+}

@@ -44,6 +44,7 @@ export async function POST(request: Request) {
           systemPrompt,
           provider: settings.aiProvider as 'anthropic' | 'openai',
           apiKey: settings.aiApiKey,
+          model: settings.aiModel?.trim() || undefined,
         })
 
         for await (const text of generator) {
