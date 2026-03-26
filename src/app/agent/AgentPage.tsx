@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 type GlobalMessage = { id: number; role: string; author: string; content: string; createdAt: string }
 
@@ -101,15 +101,33 @@ export default function GlobalChatPage() {
     return () => clearInterval(interval)
   }, [])
 
-  // Online users (use project-agnostic presence — just show who's chatting)
-  const fetchOnlineUsers = useCallback(async () => {
-    // Derive from recent messages as a simple proxy for who's active
-    const recent = messages.slice(-50)
-    const seen = [...new Set(recent.filter(m => m.role === 'user').map(m => m.author))]
-    setOnlineUsers(seen)
-  }, [messages])
+  // Heartbeat — mark this user as online
+  useEffect(() => {
+    if (!username?.trim()) return
+    const ping = () => {
+      fetch('/api/global/presence', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username }),
+      }).catch(() => {})
+    }
+    ping()
+    const interval = setInterval(ping, 30000)
+    return () => clearInterval(interval)
+  }, [username])
 
-  useEffect(() => { fetchOnlineUsers() }, [fetchOnlineUsers])
+  // Poll presence
+  useEffect(() => {
+    const fetchPresence = () => {
+      fetch('/api/global/presence')
+        .then(r => r.json())
+        .then(d => setOnlineUsers(d.online ?? []))
+        .catch(() => {})
+    }
+    fetchPresence()
+    const interval = setInterval(fetchPresence, 5000)
+    return () => clearInterval(interval)
+  }, [])
 
   const updateMentionQuery = (val: string, cursorPos: number) => {
     const before = val.slice(0, cursorPos)
@@ -175,14 +193,16 @@ export default function GlobalChatPage() {
   return (
     <div className="flex flex-col h-full bg-slate-950">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-slate-800/60 shrink-0 flex items-center justify-between">
-        <div>
-          <h1 className="text-sm font-semibold text-slate-200">Global Chat</h1>
-          <p className="text-xs text-slate-600">Team-wide · @Daneel for AI</p>
+      <div className="px-6 py-3 border-b border-slate-800/60 shrink-0">
+        <h1 className="text-sm font-semibold text-slate-200 mb-2">Global Chat</h1>
+        <div className="flex items-center gap-2">
+          {/* Daneel always shown */}
+          <Avatar name={DANEEL} />
+          {onlineUsers.map(name => (
+            <Avatar key={name} name={name} />
+          ))}
+          <span className="text-xs text-slate-600 ml-1">{onlineUsers.length} online</span>
         </div>
-        {authLoaded && username && (
-          <span className="text-xs text-slate-500">@{username}</span>
-        )}
       </div>
 
       {/* Messages */}
