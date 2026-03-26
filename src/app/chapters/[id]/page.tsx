@@ -12,5 +12,12 @@ export default async function ChapterPage({ params }: { params: { id: string } }
 
   if (!chapter) notFound()
 
-  return <ChapterEditor chapter={chapter} />
+  const serialized = {
+    ...chapter,
+    createdAt: chapter.createdAt.toISOString(),
+    updatedAt: chapter.updatedAt.toISOString(),
+    comments: chapter.comments.map(c => ({ ...c, createdAt: c.createdAt.toISOString() })),
+  }
+
+  return <ChapterEditor chapter={serialized} />
 }
