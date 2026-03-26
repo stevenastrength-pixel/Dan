@@ -8,8 +8,8 @@ const CORE_DOCS = [
 ]
 
 async function main() {
-  // Ensure the default project (id=1) exists
-  let project = await prisma.project.findFirst({ where: { id: 1 } })
+  // Ensure the default project exists
+  let project = await prisma.project.findUnique({ where: { slug: 'my-novel' } })
 
   if (!project) {
     project = await prisma.project.create({
