@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { streamAIChat, streamOpenClaw, callAnthropicWithTools, callOpenAIWithTools, callOpenClawWithTools, type OpenClawContext, type ToolDef } from '@/lib/ai'
+import { streamAIChat, streamOpenClaw, callAnthropicWithTools, callOpenAIWithTools, callOpenClawWithTools, type OpenClawContext, type ToolDef, type ToolCall } from '@/lib/ai'
 import { getUserFromRequest } from '@/lib/auth'
 
 export const maxDuration = 120 // seconds — allow tool-use loop time
@@ -435,7 +435,7 @@ ${worldList}`
   let createdTask: any = null
   try {
     let text = ''
-    let toolCallsMade: typeof import('@/lib/ai').ToolCall[] = []
+    let toolCallsMade: ToolCall[] = []
 
     if (provider === 'anthropic') {
       const result = await callAnthropicWithTools({
