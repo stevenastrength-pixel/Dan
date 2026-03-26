@@ -62,13 +62,16 @@ function TaskModal({ task, projectSlug, username, onClose, onUpdate }: {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ author: username, content }),
     })
-    // Advance status to IN_PROGRESS if still TODO
-    if (task.status === 'TODO') {
-      const res = await fetch(`/api/projects/${projectSlug}/tasks/${task.id}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'IN_PROGRESS' }),
-      })
-      if (res.ok) onUpdate({ ...task, status: 'IN_PROGRESS' })
+    // Mark task as DONE when a response is submitted
+    const res = await fetch(`/api/projects/${projectSlug}/tasks/${task.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'DONE' }),
+    })
+    if (res.ok) {
+      onUpdate({ ...task, status: 'DONE' })
+      const bc = new BroadcastChannel('dan-notifications')
+      bc.postMessage('refresh')
+      bc.close()
     }
     setSubmitted(true)
     setSubmitting(false)
