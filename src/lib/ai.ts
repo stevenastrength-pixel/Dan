@@ -3,7 +3,7 @@ export type AIProvider = 'anthropic' | 'openai' | 'openclaw'
 // ─── Default models ───────────────────────────────────────────────────────────
 
 const DEFAULT_ANTHROPIC_MODEL = 'claude-opus-4-6'
-const DEFAULT_ANTHROPIC_TOOL_MODEL = 'claude-haiku-4-5-20251001'
+const DEFAULT_ANTHROPIC_TOOL_MODEL = 'claude-sonnet-4-6'
 const DEFAULT_OPENAI_MODEL = 'gpt-5.4'
 const DEFAULT_OPENAI_TOOL_MODEL = 'gpt-5.4-nano'
 
