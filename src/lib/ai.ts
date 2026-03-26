@@ -92,7 +92,7 @@ export async function* streamOpenClaw(params: {
 }): AsyncGenerator<string> {
   const { messages, systemPrompt, openClawBaseUrl, openClawApiKey, openClawAgentId, context } = params
 
-  const url = new URL('/dan-agent', openClawBaseUrl).toString()
+  const url = openClawBaseUrl
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (openClawApiKey) headers['Authorization'] = `Bearer ${openClawApiKey}`
 
@@ -302,7 +302,7 @@ export async function callOpenClawWithTools(params: {
     openClawAgentId, context, tools, onToolCall,
   } = params
 
-  const url = new URL('/dan-agent', openClawBaseUrl).toString()
+  const url = openClawBaseUrl
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (openClawApiKey) headers['Authorization'] = `Bearer ${openClawApiKey}`
 

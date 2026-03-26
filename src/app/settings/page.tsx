@@ -383,7 +383,7 @@ export default function SettingsPage() {
                   </button>
                 </div>
                 <p className="text-xs text-slate-600 mt-1">
-                  Requests are sent to <code className="bg-slate-800 px-1 rounded text-slate-400">{'{Server URL}/dan-agent'}</code>
+                  Enter the full endpoint URL (e.g. <code className="bg-slate-800 px-1 rounded text-slate-400">https://my-server.com/dan-agent</code>). Requests are sent directly to this URL.
                 </p>
                 {testState === 'fail' && testError && (
                   <p className="text-xs text-red-400 mt-1">{testError}</p>
