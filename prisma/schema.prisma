@@ -21,6 +21,7 @@ model Project {
   worldEntries WorldEntry[]
   documents    ProjectDocument[]
   polls        Poll[]
+  tasks        Task[]
   messages     ProjectMessage[]
 }
 
@@ -169,4 +170,19 @@ model Vote {
   createdAt DateTime @default(now())
 
   @@unique([pollId, voterName])
+}
+
+// ─── Tasks ────────────────────────────────────────────────────────────────────
+
+model Task {
+  id          Int      @id @default(autoincrement())
+  projectId   Int
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignedTo  String
+  title       String
+  description String   @default("")
+  status      String   @default("TODO")  // "TODO" | "IN_PROGRESS" | "DONE"
+  createdBy   String   @default("Daneel")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }

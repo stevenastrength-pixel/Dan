@@ -15,7 +15,7 @@ const GLOBAL_NAV = [
 
 // ─── Project nav (shown when inside /projects/[slug]/...) ─────────────────────
 
-function NavLink({ href, icon, label, active }: { href: string; icon: string; label: string; active: boolean }) {
+function NavLink({ href, icon, label, active, badge }: { href: string; icon: string; label: string; active: boolean; badge?: number }) {
   return (
     <Link
       href={href}
@@ -26,14 +26,21 @@ function NavLink({ href, icon, label, active }: { href: string; icon: string; la
       }`}
     >
       <span className="text-base leading-none">{icon}</span>
-      {label}
+      <span className="flex-1">{label}</span>
+      {badge != null && badge > 0 && (
+        <span className="bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none min-w-[1.1rem] text-center">
+          {badge}
+        </span>
+      )}
     </Link>
   )
 }
 
-function ProjectNav({ slug, pathname }: { slug: string; pathname: string }) {
+function ProjectNav({ slug, pathname, pollBadge, taskBadge }: { slug: string; pathname: string; pollBadge: number; taskBadge: number }) {
   const items = [
-    { href: `/projects/${slug}/agent`, label: 'Agent', icon: '⬡' },
+    { href: `/projects/${slug}/agent`, label: 'Agent', icon: '⬡', badge: undefined },
+    { href: `/projects/${slug}/polls`, label: 'Polls', icon: '◎', badge: pollBadge },
+    { href: `/projects/${slug}/tasks`, label: 'Tasks', icon: '✓', badge: taskBadge },
   ]
 
   return (
@@ -56,6 +63,7 @@ function ProjectNav({ slug, pathname }: { slug: string; pathname: string }) {
           icon={item.icon}
           label={item.label}
           active={pathname.startsWith(item.href)}
+          badge={item.badge}
         />
       ))}
 
@@ -75,20 +83,34 @@ function ProjectNav({ slug, pathname }: { slug: string; pathname: string }) {
 
 const GLOBAL_TIPS = [
   'Create a project to get started.',
-  'Each project has its own chat, docs, chapters, and characters.',
-  'Go to Settings to connect Claude, GPT, or your own server.',
+  'Each project has its own chat, docs, chapters, characters, polls, and tasks.',
+  'Go to Settings to connect Claude, GPT, or your own OpenClaw server.',
+  'You can select a specific model per provider in Settings.',
+  'DAN: where your story gets written, argued about, and occasionally voted on.',
 ]
 
 const PROJECT_TIPS = [
   '@Daneel in chat to get an AI response.',
-  '@name to tag a teammate — they\'ll be highlighted in blue.',
-  'Story Bible and Project Instructions give Daneel its context.',
+  '@name to tag a teammate — highlighted in blue.',
+  'Story Bible and Project Instructions give Daneel its full context.',
   'Wake Prompt = what Daneel reads on every startup.',
-  'Use "↺ Reload Context" after editing docs to refresh Daneel.',
-  'Chapters, Characters, and World all live in the left sidebar.',
-  'Use polls to vote on story direction as a team.',
-  'Click + next to any section to create a new entry inline.',
-  'Your name is stored in your browser — no account needed.',
+  'Use ↺ Reload Context after editing docs to refresh Daneel.',
+  'Ask @Daneel to write or edit a chapter directly — it writes to the file.',
+  'Daneel uses patch_chapter for targeted edits and update_chapter for full rewrites.',
+  'Ask @Daneel to assign a task to a teammate by name.',
+  'Click any task to open it and send your response straight to Daneel.',
+  'Yellow badges on Polls and Tasks mean something needs your attention.',
+  'The counter bar at the bottom of chat shows your pending polls and tasks.',
+  'Use polls to vote on story direction — Daneel will factor in the result.',
+  'Ask @Daneel to create a poll — it skips the prose and calls the tool directly.',
+  'Click + next to Chapters, Characters, or World to create a new entry inline.',
+  'Daneel has read more books than you. He\'s not bragging. He just... has.',
+  'Your characters are fictional. Your deadline is not.',
+  'In the beginning was the Word document, and the Word document was empty.',
+  'All happy stories are alike; each unhappy draft is unhappy in its own way.',
+  'Daneel does not sleep. Daneel does not dream. Daneel does not judge chapter 3.',
+  'A task unfinished is just a plot twist waiting to happen.',
+  'The first rule of Poll Club: you do not talk about Poll Club.',
 ]
 
 function TipBar({ inProject }: { inProject: boolean }) {
@@ -163,10 +185,25 @@ function UserFooter() {
 
 export default function Sidebar() {
   const pathname = usePathname()
+  const [pollBadge, setPollBadge] = useState(0)
+  const [taskBadge, setTaskBadge] = useState(0)
 
   // Extract projectSlug from /projects/[slug]/... paths
   const projectMatch = pathname.match(/^\/projects\/([^/]+)/)
   const projectSlug = projectMatch?.[1]
+
+  useEffect(() => {
+    if (!projectSlug) { setPollBadge(0); setTaskBadge(0); return }
+    const fetchNotifications = () => {
+      fetch(`/api/projects/${projectSlug}/notifications`)
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d) { setPollBadge(d.pendingPolls ?? 0); setTaskBadge(d.pendingTasks ?? 0) } })
+        .catch(() => {})
+    }
+    fetchNotifications()
+    const interval = setInterval(fetchNotifications, 10000)
+    return () => clearInterval(interval)
+  }, [projectSlug])
 
   return (
     <aside className="w-56 bg-slate-950 border-r border-slate-900 flex flex-col shrink-0">
@@ -183,7 +220,7 @@ export default function Sidebar() {
 
       <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
         {projectSlug ? (
-          <ProjectNav slug={projectSlug} pathname={pathname} />
+          <ProjectNav slug={projectSlug} pathname={pathname} pollBadge={pollBadge} taskBadge={taskBadge} />
         ) : (
           GLOBAL_NAV.map((item) => (
             <NavLink

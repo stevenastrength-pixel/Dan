@@ -58,11 +58,12 @@ export async function POST(
 
   const requestingUser = await getUserFromRequest(request)
 
-  const [settings, characters, worldEntries, documents, recentMessages] = await Promise.all([
+  const [settings, characters, worldEntries, documents, chapters, recentMessages] = await Promise.all([
     prisma.settings.findFirst(),
     prisma.character.findMany({ where: { projectId: project.id }, orderBy: { name: 'asc' } }),
     prisma.worldEntry.findMany({ where: { projectId: project.id }, orderBy: { name: 'asc' } }),
     prisma.projectDocument.findMany({ where: { projectId: project.id } }),
+    prisma.chapter.findMany({ where: { projectId: project.id }, orderBy: { order: 'asc' } }),
     prisma.projectMessage.findMany({
       where: { projectId: project.id },
       orderBy: { createdAt: 'desc' },
@@ -130,9 +131,15 @@ Your personality: sharp, witty, slightly dry, always well-informed. You push bac
 ## IMPORTANT: Editing documents
 Available document keys: ${docKeys.join(', ') || 'none yet'}.
 
+## IMPORTANT: Editing chapters
+Use get_chapter to read a chapter before editing. Use patch_chapter for targeted edits (changing a scene, fixing a line, adding a paragraph). Use update_chapter only for full rewrites. Prefer patch_chapter for any edit that touches less than the whole chapter.
+
 ## CRITICAL: Creating polls
 When asked to create a poll, you MUST call the create_poll tool — do NOT write poll details in text without calling the tool. Writing about a poll in prose has no effect; only the tool call actually creates one. Call the tool first, then briefly confirm what you created.
 Use create_poll when the team faces a genuine creative decision — plot forks, character choices, world-building options. Keep options clear and mutually exclusive.
+
+## CRITICAL: Assigning tasks
+When asked to assign a task or give someone a to-do, you MUST call the assign_task tool. Do not describe the task in prose without calling the tool — only the tool call actually creates a task. The assignedTo field must be the person's exact username. Call the tool first, then briefly confirm the assignment.
 
 For targeted edits (changing a section, adding a line, updating a value):
 1. Call get_document to read the current content.
@@ -146,6 +153,12 @@ NEVER use update_document for targeted edits — large documents will exceed out
 ${documents.find(d => d.key === 'style_guide')?.content?.trim() ? `\n## Style Guide\n${documents.find(d => d.key === 'style_guide')!.content}\n` : ''}
 ## Project Documents
 ${docSections || '(No documents written yet.)'}
+
+## Chapters
+${chapters.length > 0
+  ? chapters.map((c, i) => `- Ch. ${i + 1}: **${c.title}** (id: \`${c.id}\`)${c.synopsis ? ` — ${c.synopsis}` : ''}${c.content ? '' : ' *(empty)*'}`)
+      .join('\n')
+  : 'No chapters yet.'}
 
 ## Characters
 ${characterList}
@@ -236,6 +249,66 @@ ${worldList}`
       },
     },
     {
+      name: 'get_chapter',
+      description: 'Read the full current content of a chapter before editing it. Always call this before patch_chapter or update_chapter.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          id: { type: 'string', description: 'The chapter id (from the Chapters list in your context).' },
+        },
+        required: ['id'],
+      },
+    },
+    {
+      name: 'patch_chapter',
+      description: 'Make a targeted edit to a chapter by replacing a specific piece of text. Use for any change that does not require rewriting the whole chapter. Call get_chapter first to get the exact text.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          id: { type: 'string', description: 'The chapter id.' },
+          find: { type: 'string', description: 'The exact text to find (must match character-for-character).' },
+          replace: { type: 'string', description: 'The replacement text.' },
+          summary: { type: 'string', description: 'One sentence describing the change.' },
+        },
+        required: ['id', 'find', 'replace', 'summary'],
+      },
+    },
+    {
+      name: 'update_chapter',
+      description: 'Replace the ENTIRE content of a chapter. Only for full rewrites. For targeted edits use patch_chapter instead.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          id: { type: 'string', description: 'The chapter id.' },
+          content: { type: 'string', description: 'The complete new chapter content.' },
+          summary: { type: 'string', description: 'One or two sentences describing what changed and why.' },
+        },
+        required: ['id', 'content', 'summary'],
+      },
+    },
+    {
+      name: 'assign_task',
+      description: 'Assign a task to a specific team member. Use this to give someone a clear, actionable to-do item.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          assignedTo: {
+            type: 'string',
+            description: 'The exact username of the person to assign the task to.',
+          },
+          title: {
+            type: 'string',
+            description: 'Short, clear task title.',
+          },
+          description: {
+            type: 'string',
+            description: 'More detail about what needs to be done (optional).',
+          },
+        },
+        required: ['assignedTo', 'title'],
+      },
+    },
+    {
       name: 'create_poll',
       description: 'Create a poll for the team to vote on. Use this when a creative decision needs team input — plot direction, character choices, world-building options, etc.',
       input_schema: {
@@ -292,6 +365,43 @@ ${worldList}`
       })
       return `Successfully updated "${doc.title}". ${summary}`
     }
+    if (name === 'get_chapter') {
+      const { id } = input as { id: string }
+      const chapter = await prisma.chapter.findUnique({ where: { id } })
+      if (!chapter) return `Error: chapter "${id}" not found.`
+      return `Full content of chapter "${chapter.title}":\n\n${chapter.content || '(empty)'}`
+    }
+    if (name === 'patch_chapter') {
+      const { id, find, replace, summary } = input as { id: string; find: string; replace: string; summary: string }
+      const chapter = await prisma.chapter.findUnique({ where: { id } })
+      if (!chapter) return `Error: chapter "${id}" not found.`
+      if (!chapter.content.includes(find)) return `Error: the text to find was not found in "${chapter.title}". Call get_chapter to check the exact current content.`
+      await prisma.chapter.update({ where: { id }, data: { content: chapter.content.replace(find, replace) } })
+      return `Patched chapter "${chapter.title}". ${summary}`
+    }
+    if (name === 'update_chapter') {
+      const { id, content, summary } = input as { id: string; content: string; summary: string }
+      const chapter = await prisma.chapter.findUnique({ where: { id } })
+      if (!chapter) return `Error: chapter "${id}" not found.`
+      await prisma.chapter.update({ where: { id }, data: { content: content ?? '' } })
+      return `Updated chapter "${chapter.title}". ${summary}`
+    }
+    if (name === 'assign_task') {
+      const { assignedTo, title, description } = input as { assignedTo: string; title: string; description?: string }
+      if (!assignedTo?.trim()) return 'Error: assignedTo is required.'
+      if (!title?.trim()) return 'Error: title is required.'
+      const newTask = await prisma.task.create({
+        data: {
+          projectId: project.id,
+          assignedTo: assignedTo.trim(),
+          title: title.trim(),
+          description: description?.trim() ?? '',
+          createdBy: 'Daneel',
+        },
+      })
+      createdTask = newTask
+      return `Task assigned to @${assignedTo.trim()}: "${title.trim()}"${description ? ` — ${description}` : ''}`
+    }
     if (name === 'create_poll') {
       const { question, options } = input as { question: string; options: string[] }
       if (!question?.trim()) return 'Error: question is required.'
@@ -321,6 +431,8 @@ ${worldList}`
   let pollCreated = false
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let createdPoll: any = null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let createdTask: any = null
   try {
     let text = ''
     let toolCallsMade: typeof import('@/lib/ai').ToolCall[] = []
@@ -354,11 +466,19 @@ ${worldList}`
 
     pollCreated = toolCallsMade.some(tc => tc.name === 'create_poll')
     const editLog = toolCallsMade
-      .filter(tc => tc.name === 'update_document' || tc.name === 'patch_document' || tc.name === 'create_poll')
+      .filter(tc => ['update_document', 'patch_document', 'update_chapter', 'patch_chapter', 'create_poll', 'assign_task'].includes(tc.name))
       .map(tc => {
         if (tc.name === 'create_poll') {
           const { question, options } = tc.input as { question: string; options: string[] }
           return `📊 Created poll: **"${question}"** — ${options.join(' / ')}`
+        }
+        if (tc.name === 'assign_task') {
+          const { assignedTo, title } = tc.input as { assignedTo: string; title: string }
+          return `✓ Assigned task to @${assignedTo}: **"${title}"**`
+        }
+        if (tc.name === 'update_chapter' || tc.name === 'patch_chapter') {
+          const chapter = chapters.find(c => c.id === (tc.input as { id: string }).id)
+          return `📖 Updated chapter **"${chapter?.title ?? (tc.input as { id: string }).id}"**: ${(tc.input as { summary: string }).summary}`
         }
         return `📝 Updated **${(tc.input as { key: string }).key}**: ${(tc.input as { summary: string }).summary}`
       })
@@ -373,5 +493,5 @@ ${worldList}`
     data: { projectId: project.id, role: 'assistant', author: 'Daneel', content: aiContent },
   })
 
-  return NextResponse.json({ message, aiMessage, pollCreated, createdPoll })
+  return NextResponse.json({ message, aiMessage, pollCreated, createdPoll, createdTask })
 }

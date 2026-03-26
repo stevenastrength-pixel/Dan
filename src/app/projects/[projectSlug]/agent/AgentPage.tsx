@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import Link from 'next/link'
 import { ThemeToggle } from '@/components/ThemeToggle'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -165,28 +166,35 @@ function Sidebar({
   const selectedCharacterId = selectedView.type === 'character' ? selectedView.id : null
   const selectedWorldId = selectedView.type === 'world' ? selectedView.id : null
 
+  const [docsOpen, setDocsOpen] = useState(true)
+
   return (
     <div className="w-52 border-r border-slate-800/60 flex flex-col shrink-0 bg-slate-900/40 overflow-y-auto">
       {/* Documents */}
-      <div>
-        <div className="px-3 py-2 border-b border-slate-800/60">
-          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Documents</p>
+      <div className="border-b border-slate-800/60">
+        <div className="flex items-center justify-between px-3 py-2">
+          <button onClick={() => setDocsOpen(v => !v)}
+            className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-500 uppercase tracking-wider hover:text-slate-300 transition-colors">
+            <span>{docsOpen ? '▼' : '▶'}</span> Documents
+          </button>
         </div>
-        <nav className="p-2 space-y-0.5">
-          {documents.map(doc => (
-            <button key={doc.key} onClick={() => onSelectDoc(doc.key)}
-              className={`w-full text-left px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                selectedDocKey === doc.key
-                  ? 'bg-emerald-600/15 text-emerald-300'
-                  : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
-              }`}>
-              <span className="block truncate">{doc.title}</span>
-              {doc.content.trim() && (
-                <span className="text-[10px] text-slate-600">{timeAgo(doc.updatedAt)}</span>
-              )}
-            </button>
-          ))}
-        </nav>
+        {docsOpen && (
+          <nav className="px-2 pb-2 space-y-0.5">
+            {documents.map(doc => (
+              <button key={doc.key} onClick={() => onSelectDoc(doc.key)}
+                className={`w-full text-left px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                  selectedDocKey === doc.key
+                    ? 'bg-emerald-600/15 text-emerald-300'
+                    : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+                }`}>
+                <span className="block truncate">{doc.title}</span>
+                {doc.content.trim() && (
+                  <span className="text-[10px] text-slate-600">{timeAgo(doc.updatedAt)}</span>
+                )}
+              </button>
+            ))}
+          </nav>
+        )}
       </div>
 
       {/* Chapters */}
@@ -468,7 +476,7 @@ function Avatar({ name, online }: { name: string; online: boolean }) {
 
 // ─── Chat Panel ───────────────────────────────────────────────────────────────
 
-function ChatPanel({ projectSlug, username, onDocumentUpdated, onPollCreated }: { projectSlug: string; username: string; onDocumentUpdated?: () => void; onPollCreated?: (poll?: Poll) => void }) {
+function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated, onPollCreated, onTaskAssigned }: { projectSlug: string; username: string; onDocumentUpdated?: () => void; onChapterUpdated?: () => void; onPollCreated?: (poll?: Poll) => void; onTaskAssigned?: () => void }) {
   const [messages, setMessages] = useState<ProjectMessage[]>([])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
@@ -624,8 +632,10 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onPollCreated }: 
         return toAdd.length > 0 ? [...prev, ...toAdd] : prev
       })
       if (data.message) lastIdRef.current = Math.max(lastIdRef.current, data.aiMessage?.id ?? data.message.id)
-      if (data.aiMessage?.content?.startsWith('📝')) onDocumentUpdated?.()
+      if (data.aiMessage?.content?.includes('📝')) onDocumentUpdated?.()
+      if (data.aiMessage?.content?.includes('📖')) onChapterUpdated?.()
       if (data.aiMessage) onPollCreated?.(data.createdPoll ?? undefined)
+      if (data.createdTask) onTaskAssigned?.()
     } catch {}
     finally {
       setSending(false)
@@ -700,7 +710,7 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onPollCreated }: 
       </div>
 
       {/* Input area */}
-      <div className="px-3 py-2.5 border-t border-slate-800/60 shrink-0 relative">
+      <div className="px-3 py-2 border-t border-slate-800/60 shrink-0 relative">
         {/* @ mention dropdown */}
         {mentionCandidates.length > 0 && (
           <div className="absolute bottom-full left-3 right-3 mb-1 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden z-20">
@@ -728,18 +738,21 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onPollCreated }: 
           </div>
         )}
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 pr-4 sm:pr-8 md:pr-16">
           <button
             onClick={() => {
               const prefix = '@Daneel '
-              if (!input.startsWith(prefix)) {
-                setInput(prefix + input)
-              }
-              setTimeout(() => inputRef.current?.focus(), 0)
+              const newInput = input.startsWith(prefix) ? input : prefix + input
+              setInput(newInput)
+              setTimeout(() => {
+                inputRef.current?.focus()
+                const pos = newInput.startsWith(prefix) ? newInput.length : prefix.length
+                inputRef.current?.setSelectionRange(pos, pos)
+              }, 0)
             }}
             disabled={sending}
             title="Tag Daneel"
-            className="px-2 py-2 bg-slate-800 border border-slate-700 text-emerald-400 rounded-lg text-sm hover:bg-slate-700 hover:border-emerald-500/40 disabled:opacity-40 transition-colors shrink-0"
+            className="px-2 py-1.5 bg-slate-800 border border-slate-700 text-emerald-400 rounded-lg text-sm hover:bg-slate-700 hover:border-emerald-500/40 disabled:opacity-40 transition-colors shrink-0"
           >
             ⬡
           </button>
@@ -751,7 +764,7 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onPollCreated }: 
             onClick={e => updateMentionQuery(input, (e.target as HTMLInputElement).selectionStart ?? input.length)}
             placeholder="Message… (@Daneel for AI, @name to tag)"
             disabled={sending}
-            className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 disabled:opacity-50"
+            className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 disabled:opacity-50"
           />
           <button
             onClick={send}
@@ -1003,6 +1016,8 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
   const [toast, setToast] = useState<string | null>(null)
   const [reloading, setReloading] = useState(false)
   const [view, setView] = useState<MainView>({ type: 'console' })
+  const [pendingTasks, setPendingTasks] = useState(0)
+  const [unvotedPolls, setUnvotedPolls] = useState(0)
 
   // Content lists
   const [chapters, setChapters] = useState<Chapter[]>([])
@@ -1063,6 +1078,20 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
     const interval = setInterval(fetchPolls, 10000)
     return () => clearInterval(interval)
   }, [fetchDocuments, fetchPolls, fetchChapters, fetchCharacters, fetchWorld])
+
+  // Notification counts (pending tasks + unvoted polls)
+  const fetchNotifications = useCallback(() => {
+    fetch(`/api/projects/${project.slug}/notifications`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) { setPendingTasks(d.pendingTasks ?? 0); setUnvotedPolls(d.pendingPolls ?? 0) } })
+      .catch(() => {})
+  }, [project.slug])
+
+  useEffect(() => {
+    fetchNotifications()
+    const interval = setInterval(fetchNotifications, 10000)
+    return () => clearInterval(interval)
+  }, [fetchNotifications])
 
   // Track online users at the page level (for poll voting gate)
   useEffect(() => {
@@ -1209,20 +1238,39 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
                 projectSlug={project.slug}
                 username={username ?? 'Anonymous'}
                 onDocumentUpdated={fetchDocuments}
+                onChapterUpdated={fetchChapters}
                 onPollCreated={(poll) => {
                   if (poll) setPolls(prev => [...prev, poll])
                   fetchPolls()
+                  fetchNotifications()
+                }}
+                onTaskAssigned={() => {
+                  fetchNotifications()
                 }}
               />
-              <PollsPanel
-                projectSlug={project.slug}
-                username={username ?? 'Anonymous'}
-                polls={polls}
-                onRefresh={fetchPolls}
-                onPollClosed={postMessage}
-                onlineUsers={onlineUsers}
-                isAdmin={isAdmin}
-              />
+              {/* Pending counters */}
+              <div className="shrink-0 px-3 py-2 border-t border-slate-800/60 flex gap-2">
+                <Link href={`/projects/${project.slug}/polls`}
+                  className="flex-1 flex items-center justify-between px-3 py-2 rounded-lg border border-slate-800/60 bg-slate-900/40 hover:border-slate-700 hover:bg-slate-900/60 transition-colors group">
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-500 group-hover:text-slate-400 transition-colors">◎</span>
+                    <span className="text-xs text-slate-500 group-hover:text-slate-400 transition-colors">Polls</span>
+                  </div>
+                  <span className={`text-sm font-semibold tabular-nums ${unvotedPolls > 0 ? 'text-amber-400' : 'text-slate-600'}`}>
+                    {unvotedPolls > 0 ? `${unvotedPolls} pending` : '—'}
+                  </span>
+                </Link>
+                <Link href={`/projects/${project.slug}/tasks`}
+                  className="flex-1 flex items-center justify-between px-3 py-2 rounded-lg border border-slate-800/60 bg-slate-900/40 hover:border-slate-700 hover:bg-slate-900/60 transition-colors group">
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-500 group-hover:text-slate-400 transition-colors">✓</span>
+                    <span className="text-xs text-slate-500 group-hover:text-slate-400 transition-colors">Tasks</span>
+                  </div>
+                  <span className={`text-sm font-semibold tabular-nums ${pendingTasks > 0 ? 'text-amber-400' : 'text-slate-600'}`}>
+                    {pendingTasks > 0 ? `${pendingTasks} pending` : '—'}
+                  </span>
+                </Link>
+              </div>
             </>
           )}
         </div>
