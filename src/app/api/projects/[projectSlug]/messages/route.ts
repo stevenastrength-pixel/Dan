@@ -60,7 +60,7 @@ export async function POST(
 
   const requestingUser = await getUserFromRequest(request)
 
-  const [settings, characters, worldEntries, documents, chapters, recentMessages] = await Promise.all([
+  const [settings, characters, worldEntries, documents, chapters, recentMessages, tasks] = await Promise.all([
     prisma.settings.findFirst(),
     prisma.character.findMany({ where: { projectId: project.id }, orderBy: { name: 'asc' } }),
     prisma.worldEntry.findMany({ where: { projectId: project.id }, orderBy: { name: 'asc' } }),
@@ -71,6 +71,7 @@ export async function POST(
       orderBy: { createdAt: 'desc' },
       take: 20,
     }).then(msgs => msgs.reverse()),
+    prisma.task.findMany({ where: { projectId: project.id }, orderBy: { createdAt: 'asc' } }),
   ])
 
   const provider = (settings?.aiProvider ?? 'anthropic') as 'anthropic' | 'openai' | 'openclaw'
@@ -168,7 +169,12 @@ ${chapters.length > 0
 ${characterList}
 
 ## World Building
-${worldList}`
+${worldList}
+
+## Current Tasks
+${tasks.length > 0
+  ? tasks.map(t => `- [${t.status}] @${t.assignedTo}: **${t.title}**${t.description ? ` — ${t.description}` : ''}`).join('\n')
+  : 'No tasks assigned yet.'}`
 
   // Convert recent chat to AI message format (user messages attributed by name)
   const aiMessages = recentMessages.map(m => ({
@@ -313,6 +319,17 @@ ${worldList}`
       },
     },
     {
+      name: 'get_tasks',
+      description: 'Get the current task list for the project, optionally filtered by user or status.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          assignedTo: { type: 'string', description: 'Filter by username (optional).' },
+          status: { type: 'string', description: 'Filter by status: TODO, IN_PROGRESS, or DONE (optional).' },
+        },
+      },
+    },
+    {
       name: 'create_poll',
       description: 'Create a poll for the team to vote on. Use this when a creative decision needs team input — plot direction, character choices, world-building options, etc.',
       input_schema: {
@@ -389,6 +406,19 @@ ${worldList}`
       if (!chapter) return `Error: chapter "${id}" not found.`
       await prisma.chapter.update({ where: { id }, data: { content: content ?? '' } })
       return `Updated chapter "${chapter.title}". ${summary}`
+    }
+    if (name === 'get_tasks') {
+      const { assignedTo, status } = input as { assignedTo?: string; status?: string }
+      const filtered = await prisma.task.findMany({
+        where: {
+          projectId: project.id,
+          ...(assignedTo ? { assignedTo } : {}),
+          ...(status ? { status } : {}),
+        },
+        orderBy: { createdAt: 'asc' },
+      })
+      if (filtered.length === 0) return 'No tasks found matching those filters.'
+      return filtered.map(t => `[${t.status}] @${t.assignedTo}: "${t.title}"${t.description ? ` — ${t.description}` : ''}`).join('\n')
     }
     if (name === 'assign_task') {
       const { assignedTo, title, description } = input as { assignedTo: string; title: string; description?: string }
