@@ -135,16 +135,17 @@ Your personality: sharp, witty, slightly dry, always well-informed. You push bac
 Available document keys: ${docKeys.join(', ') || 'none yet'}.
 
 ## IMPORTANT: Editing chapters
-Use get_chapter to read a chapter before editing. Use patch_chapter for targeted edits (changing a scene, fixing a line, adding a paragraph). Use update_chapter only for full rewrites. Prefer patch_chapter for any edit that touches less than the whole chapter.
+Chapter IDs are listed in the Chapters section below — use them directly, do NOT ask the user for an ID you already have.
+Use create_chapter to create a new chapter. Use get_chapter to read a chapter before editing. Use patch_chapter for targeted edits. Use update_chapter only for full rewrites.
 
 ## CRITICAL: Creating polls
 When asked to create a poll, you MUST call the create_poll tool — do NOT write poll details in text without calling the tool. Writing about a poll in prose has no effect; only the tool call actually creates one. Call the tool first, then briefly confirm what you created.
 Use create_poll when the team faces a genuine creative decision — plot forks, character choices, world-building options. Keep options clear and mutually exclusive.
 
 ## CRITICAL: Assigning tasks
-When asked to assign a task or give someone a to-do, you MUST call the assign_task tool. Do not describe the task in prose without calling the tool — only the tool call actually creates a task. The assignedTo field must be the person's exact username. Call the tool first, then briefly confirm the assignment.
+You MUST call the assign_task tool to assign tasks. Writing "✓ Assigned task" or any similar text in prose does NOT create a task — it is invisible to the system and the user will never see it in their task queue. The ONLY way to create a task is to call the assign_task tool. If you describe a task without calling the tool, you have failed. Call the tool first, then confirm briefly in text.
 
-IMPORTANT: When a user reports completing a task, do NOT automatically assign them a new one unless (a) you are explicitly asked to, or (b) the message states their queue is now empty AND they ask for more work. If the message says they still have active tasks remaining, simply acknowledge the completion without assigning anything new.
+When a user reports completing a task, do NOT automatically assign them a new one unless (a) explicitly asked to, or (b) their queue is empty AND they ask for more work.
 
 For targeted edits (changing a section, adding a line, updating a value):
 1. Call get_document to read the current content.
@@ -169,12 +170,7 @@ ${chapters.length > 0
 ${characterList}
 
 ## World Building
-${worldList}
-
-## Current Tasks
-${tasks.length > 0
-  ? tasks.map(t => `- [${t.status}] @${t.assignedTo}: **${t.title}**${t.description ? ` — ${t.description}` : ''}`).join('\n')
-  : 'No tasks assigned yet.'}`
+${worldList}`
 
   // Convert recent chat to AI message format (user messages attributed by name)
   const aiMessages = recentMessages.map(m => ({
@@ -256,6 +252,19 @@ ${tasks.length > 0
           },
         },
         required: ['key', 'content', 'summary'],
+      },
+    },
+    {
+      name: 'create_chapter',
+      description: 'Create a new chapter in the project. Use this when asked to write a new chapter or when a chapter does not yet exist.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          title: { type: 'string', description: 'The chapter title.' },
+          content: { type: 'string', description: 'The chapter content.' },
+          synopsis: { type: 'string', description: 'A brief synopsis of the chapter (optional).' },
+        },
+        required: ['title', 'content'],
       },
     },
     {
@@ -386,6 +395,23 @@ ${tasks.length > 0
       })
       return `Successfully updated "${doc.title}". ${summary}`
     }
+    if (name === 'create_chapter') {
+      const { title, content, synopsis } = input as { title: string; content: string; synopsis?: string }
+      if (!title?.trim()) return 'Error: title is required.'
+      const maxOrder = await prisma.chapter.findFirst({
+        where: { projectId: project.id }, orderBy: { order: 'desc' }, select: { order: true },
+      })
+      const newChapter = await prisma.chapter.create({
+        data: {
+          projectId: project.id,
+          title: title.trim(),
+          content: content ?? '',
+          synopsis: synopsis?.trim() ?? '',
+          order: (maxOrder?.order ?? 0) + 1,
+        },
+      })
+      return `Created chapter "${newChapter.title}" with id: ${newChapter.id}`
+    }
     if (name === 'get_chapter') {
       const { id } = input as { id: string }
       const chapter = await prisma.chapter.findUnique({ where: { id } })
@@ -422,19 +448,26 @@ ${tasks.length > 0
     }
     if (name === 'assign_task') {
       const { assignedTo, title, description } = input as { assignedTo: string; title: string; description?: string }
+      console.log('[assign_task] called with:', { assignedTo, title, projectId: project.id })
       if (!assignedTo?.trim()) return 'Error: assignedTo is required.'
       if (!title?.trim()) return 'Error: title is required.'
-      const newTask = await prisma.task.create({
-        data: {
-          projectId: project.id,
-          assignedTo: assignedTo.trim(),
-          title: title.trim(),
-          description: description?.trim() ?? '',
-          createdBy: 'Daneel',
-        },
-      })
-      createdTask = newTask
-      return `Task assigned to @${assignedTo.trim()}: "${title.trim()}"${description ? ` — ${description}` : ''}`
+      try {
+        const newTask = await prisma.task.create({
+          data: {
+            projectId: project.id,
+            assignedTo: assignedTo.trim(),
+            title: title.trim(),
+            description: description?.trim() ?? '',
+            createdBy: 'Daneel',
+          },
+        })
+        console.log('[assign_task] created:', newTask.id)
+        createdTask = newTask
+        return `Task assigned to @${assignedTo.trim()}: "${title.trim()}"${description ? ` — ${description}` : ''}`
+      } catch (err) {
+        console.error('[assign_task] DB error:', err)
+        return `Error creating task: ${err instanceof Error ? err.message : String(err)}`
+      }
     }
     if (name === 'create_poll') {
       const { question, options } = input as { question: string; options: string[] }
@@ -500,7 +533,7 @@ ${tasks.length > 0
 
     pollCreated = toolCallsMade.some(tc => tc.name === 'create_poll')
     const editLog = toolCallsMade
-      .filter(tc => ['update_document', 'patch_document', 'update_chapter', 'patch_chapter', 'create_poll', 'assign_task'].includes(tc.name))
+      .filter(tc => ['update_document', 'patch_document', 'create_chapter', 'update_chapter', 'patch_chapter', 'create_poll', 'assign_task'].includes(tc.name))
       .map(tc => {
         if (tc.name === 'create_poll') {
           const { question, options } = tc.input as { question: string; options: string[] }
@@ -509,6 +542,9 @@ ${tasks.length > 0
         if (tc.name === 'assign_task') {
           const { assignedTo, title } = tc.input as { assignedTo: string; title: string }
           return `✓ Assigned task to @${assignedTo}: **"${title}"**`
+        }
+        if (tc.name === 'create_chapter') {
+          return `📖 Created chapter **"${(tc.input as { title: string }).title}"**`
         }
         if (tc.name === 'update_chapter' || tc.name === 'patch_chapter') {
           const chapter = chapters.find(c => c.id === (tc.input as { id: string }).id)
