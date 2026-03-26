@@ -153,6 +153,9 @@ function TaskCard({ task, projectSlug, onUpdate, onDelete, onOpen, isAdmin, curr
     if (res.ok) {
       onUpdate({ ...task, status: next })
       if (next === 'DONE') {
+        const bc = new BroadcastChannel('dan-notifications')
+        bc.postMessage('refresh')
+        bc.close()
         // Count remaining active tasks for this user (excluding the one just completed)
         const remaining = allTasks.filter(
           t => t.assignedTo === currentUser && t.status !== 'DONE' && t.id !== task.id
@@ -298,6 +301,12 @@ export default function TasksPage({ project }: { project: { name: string; slug: 
     setAllTasks(prev => prev.filter(t => t.id !== id))
   }
 
+  const broadcastRefresh = () => {
+    const channel = new BroadcastChannel('dan-notifications')
+    channel.postMessage('refresh')
+    channel.close()
+  }
+
   const clearMyTasks = async () => {
     for (const t of tasks) {
       await fetch(`/api/projects/${project.slug}/tasks/${t.id}`, { method: 'DELETE' })
@@ -305,6 +314,15 @@ export default function TasksPage({ project }: { project: { name: string; slug: 
     setTasks([])
     setAllTasks(prev => prev.filter(t => t.assignedTo !== username))
     setClearConfirm(false)
+    broadcastRefresh()
+    await fetch(`/api/projects/${project.slug}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        author: username,
+        content: `🗑 All tasks cleared by ${username}. Queue is now empty.\n@Daneel`,
+      }),
+    })
   }
 
   // Group tasks by status for "my tasks" view

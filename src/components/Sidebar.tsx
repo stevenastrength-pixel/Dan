@@ -202,7 +202,11 @@ export default function Sidebar() {
     }
     fetchNotifications()
     const interval = setInterval(fetchNotifications, 10000)
-    return () => clearInterval(interval)
+
+    const channel = new BroadcastChannel('dan-notifications')
+    channel.onmessage = () => fetchNotifications()
+
+    return () => { clearInterval(interval); channel.close() }
   }, [projectSlug])
 
   return (

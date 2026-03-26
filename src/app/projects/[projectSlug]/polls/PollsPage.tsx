@@ -151,29 +151,58 @@ export default function PollsPage({ project }: { project: { name: string; slug: 
     return () => clearInterval(interval)
   }, [project.slug])
 
-  const vote = async (pollId: number, optionIdx: number) => {
-    await fetch(`/api/polls/${pollId}/vote`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ voterName: username, optionIdx }),
-    })
-    fetchPolls()
+  const broadcastRefresh = () => {
+    const channel = new BroadcastChannel('dan-notifications')
+    channel.postMessage('refresh')
+    channel.close()
   }
 
-  const closePoll = async (pollId: number) => {
-    await fetch(`/api/polls/${pollId}/close`, { method: 'POST' })
-    fetchPolls()
-    // Post result summary to chat
-    const poll = polls.find(p => p.id === pollId)
-    if (!poll) return
-    const tallies = poll.options.map((_, i) => poll.votes.filter(v => v.optionIdx === i).length)
-    const total = poll.votes.length
+  const buildSummary = (poll: Poll, extraVote?: { voterName: string; optionIdx: number }) => {
+    const votes = extraVote ? [...poll.votes, extraVote] : poll.votes
+    const tallies = poll.options.map((_, i) => votes.filter(v => v.optionIdx === i).length)
+    const total = votes.length
     const maxTally = Math.max(...tallies, 0)
     const lines = poll.options.map((opt, i) => {
       const count = tallies[i]
       const pct = total > 0 ? Math.round((count / total) * 100) : 0
       return `• ${opt} — ${count} vote${count !== 1 ? 's' : ''}${pct > 0 ? ` (${pct}%)` : ''}${count === maxTally && total > 0 ? ' 🏆' : ''}`
     }).join('\n')
-    const summary = `📊 Poll closed: **"${poll.question}"**\n${lines}\n\n@Daneel the team has voted — acknowledge the result and factor it into the project if relevant.`
+    return `📊 Poll closed: **"${poll.question}"**\n${lines}\n\n@Daneel the team has voted — acknowledge the result and factor it into the project if relevant.`
+  }
+
+  const vote = async (pollId: number, optionIdx: number) => {
+    await fetch(`/api/polls/${pollId}/vote`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ voterName: username, optionIdx }),
+    })
+    broadcastRefresh()
+
+    // Auto-close if everyone online has now voted
+    const poll = polls.find(p => p.id === pollId)
+    if (poll && onlineUsers.length > 0) {
+      const votedNames = new Set([...poll.votes.map(v => v.voterName), username ?? ''])
+      const allVoted = onlineUsers.every(u => votedNames.has(u))
+      if (allVoted) {
+        await fetch(`/api/polls/${pollId}/close`, { method: 'POST' })
+        const summary = buildSummary(poll, { voterName: username ?? '', optionIdx })
+        await fetch(`/api/projects/${project.slug}/messages`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ author: username ?? 'System', content: summary }),
+        })
+        broadcastRefresh()
+      }
+    }
+
+    fetchPolls()
+  }
+
+  const closePoll = async (pollId: number) => {
+    await fetch(`/api/polls/${pollId}/close`, { method: 'POST' })
+    fetchPolls()
+    broadcastRefresh()
+    const poll = polls.find(p => p.id === pollId)
+    if (!poll) return
+    const summary = buildSummary(poll)
     await fetch(`/api/projects/${project.slug}/messages`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ author: username ?? 'System', content: summary }),

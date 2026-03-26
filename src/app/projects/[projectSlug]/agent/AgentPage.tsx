@@ -640,7 +640,7 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
     finally {
       setSending(false)
       setThinking(false)
-      inputRef.current?.focus()
+      setTimeout(() => inputRef.current?.focus(), 0)
     }
   }
 
