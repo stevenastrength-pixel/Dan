@@ -125,7 +125,7 @@ function TipBar({ inProject }: { inProject: boolean }) {
         setIdx(i => (i + 1) % tips.length)
         setVisible(true)
       }, 300)
-    }, 6000)
+    }, 30000)
     return () => clearInterval(interval)
   }, [tips.length])
 
