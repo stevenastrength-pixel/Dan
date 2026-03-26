@@ -492,6 +492,8 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
   const [loadingOlder, setLoadingOlder] = useState(false)
 
   const lastIdRef = useRef<number>(0)
+  const suppressScrollRef = useRef(false)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -501,8 +503,11 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
         .filter(u => u.toLowerCase().startsWith(mentionQuery.toLowerCase()))
     : []
 
-  // Auto-scroll
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, thinking])
+  // Auto-scroll — skip when loading older messages
+  useEffect(() => {
+    if (suppressScrollRef.current) { suppressScrollRef.current = false; return }
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, thinking])
 
   // Initial message load
   useEffect(() => {
@@ -519,12 +524,18 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
   const loadOlder = async () => {
     if (loadingOlder || messages.length === 0) return
     setLoadingOlder(true)
+    const container = scrollContainerRef.current
+    const prevScrollHeight = container?.scrollHeight ?? 0
     try {
       const oldest = messages[0].id
       const res = await fetch(`/api/projects/${projectSlug}/messages?beforeId=${oldest}`)
       const older: ProjectMessage[] = await res.json()
       if (older.length > 0) {
+        suppressScrollRef.current = true
         setMessages(prev => [...older.filter(m => !prev.some(p => p.id === m.id)), ...prev])
+        requestAnimationFrame(() => {
+          if (container) container.scrollTop = container.scrollHeight - prevScrollHeight
+        })
       }
       setHasMore(older.length >= 50)
     } catch {}
@@ -681,7 +692,7 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
         {hasMore && (
           <div className="flex justify-center pt-1 pb-2">
             <button onClick={loadOlder} disabled={loadingOlder}
