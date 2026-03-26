@@ -169,7 +169,7 @@ function Sidebar({
   const [docsOpen, setDocsOpen] = useState(true)
 
   return (
-    <div className="w-52 border-r border-slate-800/60 flex flex-col shrink-0 bg-slate-900/40 overflow-y-auto">
+    <div className="w-64 border-l border-slate-800/60 flex flex-col shrink-0 bg-slate-900/40 overflow-y-auto">
       {/* Documents */}
       <div className="border-b border-slate-800/60">
         <div className="flex items-center justify-between px-3 py-2">
@@ -1191,24 +1191,6 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
 
       {/* Body */}
       <div className="flex flex-1 overflow-hidden">
-        <Sidebar
-          documents={documents}
-          selectedView={view}
-          onSelectDoc={key => setView({ type: 'document', key })}
-          onSelectChapter={id => setView({ type: 'chapter', id })}
-          onSelectCharacter={id => setView({ type: 'character', id })}
-          onSelectWorld={id => setView({ type: 'world', id })}
-          chapters={chapters}
-          characters={characters}
-          worldEntries={worldEntries}
-          onCreateChapter={createChapter}
-          onCreateCharacter={createCharacter}
-          onCreateWorldEntry={createWorldEntry}
-          chaptersLoading={!chaptersLoaded}
-          charactersLoading={!charactersLoaded}
-          worldLoading={!worldLoaded}
-        />
-
         <div className="flex flex-col flex-1 overflow-hidden">
           {view.type === 'document' && selectedDoc && (
             <DocEditor key={selectedDoc.key} doc={selectedDoc} projectSlug={project.slug}
@@ -1272,6 +1254,24 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
             </>
           )}
         </div>
+
+        <Sidebar
+          documents={documents}
+          selectedView={view}
+          onSelectDoc={key => setView({ type: 'document', key })}
+          onSelectChapter={id => setView({ type: 'chapter', id })}
+          onSelectCharacter={id => setView({ type: 'character', id })}
+          onSelectWorld={id => setView({ type: 'world', id })}
+          chapters={chapters}
+          characters={characters}
+          worldEntries={worldEntries}
+          onCreateChapter={createChapter}
+          onCreateCharacter={createCharacter}
+          onCreateWorldEntry={createWorldEntry}
+          chaptersLoading={!chaptersLoaded}
+          charactersLoading={!charactersLoaded}
+          worldLoading={!worldLoaded}
+        />
       </div>
     </div>
   )
