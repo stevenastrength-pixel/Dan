@@ -35,6 +35,14 @@ model ProjectMessage {
   createdAt DateTime @default(now())
 }
 
+model GlobalMessage {
+  id        Int      @id @default(autoincrement())
+  role      String   // 'user' | 'assistant'
+  author    String
+  content   String
+  createdAt DateTime @default(now())
+}
+
 model UserPresence {
   projectId Int
   username  String

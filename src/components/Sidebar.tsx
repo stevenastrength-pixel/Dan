@@ -10,6 +10,7 @@ import { DanIcon } from '@/components/DanLogo'
 
 const GLOBAL_NAV = [
   { href: '/projects', label: 'Projects', icon: '◫' },
+  { href: '/agent', label: 'Chat', icon: '⬡' },
   { href: '/settings', label: 'Settings', icon: '⚙' },
 ]
 
