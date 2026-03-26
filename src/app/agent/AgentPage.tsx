@@ -97,7 +97,10 @@ export default function GlobalChatPage() {
     try {
       const oldest = messages[0].id
       const res = await fetch(`/api/global/messages?beforeId=${oldest}`)
-      const older: GlobalMessage[] = await res.json()
+      if (!res.ok) { console.error('[loadOlder] HTTP error', res.status); return }
+      const data = await res.json()
+      const older: GlobalMessage[] = Array.isArray(data) ? data : []
+      console.log('[loadOlder] beforeId:', oldest, '→ got', older.length, 'messages')
       if (older.length > 0) {
         suppressScrollRef.current = true
         setMessages(prev => [...older.filter(m => !prev.some(p => p.id === m.id)), ...prev])
@@ -106,7 +109,7 @@ export default function GlobalChatPage() {
         })
       }
       setHasMore(older.length >= 50)
-    } catch {}
+    } catch (e) { console.error('[loadOlder] error:', e) }
     finally { setLoadingOlder(false) }
   }
 

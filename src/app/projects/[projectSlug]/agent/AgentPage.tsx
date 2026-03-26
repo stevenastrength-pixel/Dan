@@ -529,7 +529,10 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
     try {
       const oldest = messages[0].id
       const res = await fetch(`/api/projects/${projectSlug}/messages?beforeId=${oldest}`)
-      const older: ProjectMessage[] = await res.json()
+      if (!res.ok) { console.error('[loadOlder] HTTP error', res.status); return }
+      const data = await res.json()
+      const older: ProjectMessage[] = Array.isArray(data) ? data : []
+      console.log('[loadOlder] beforeId:', oldest, '→ got', older.length, 'messages')
       if (older.length > 0) {
         suppressScrollRef.current = true
         setMessages(prev => [...older.filter(m => !prev.some(p => p.id === m.id)), ...prev])
@@ -538,7 +541,7 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
         })
       }
       setHasMore(older.length >= 50)
-    } catch {}
+    } catch (e) { console.error('[loadOlder] error:', e) }
     finally { setLoadingOlder(false) }
   }
 
