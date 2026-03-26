@@ -532,8 +532,9 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
     return () => clearInterval(interval)
   }, [projectSlug])
 
-  // Heartbeat — mark this user as online
+  // Heartbeat — mark this user as online (only when username is known)
   useEffect(() => {
+    if (!username?.trim()) return
     const ping = () => {
       fetch(`/api/projects/${projectSlug}/presence`, {
         method: 'POST',
@@ -1027,10 +1028,13 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
 
   useEffect(() => {
     setMounted(true)
-    const stored = localStorage.getItem('dan-username')
-    if (stored) setUsername(stored)
     fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(d => {
-      if (d?.role === 'admin') setIsAdmin(true)
+      if (!d) return
+      if (d.role === 'admin') setIsAdmin(true)
+      if (d.username) {
+        setUsername(d.username)
+        localStorage.setItem('dan-username', d.username)
+      }
     })
   }, [])
 

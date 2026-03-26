@@ -123,10 +123,10 @@ export default function PollsPage({ project }: { project: { name: string; slug: 
   const [closedExpanded, setClosedExpanded] = useState(false)
 
   useEffect(() => {
-    const stored = localStorage.getItem('dan-username')
-    if (stored) setUsername(stored)
     fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(d => {
-      if (d?.role === 'admin') setIsAdmin(true)
+      if (!d) return
+      if (d.role === 'admin') setIsAdmin(true)
+      if (d.username) { setUsername(d.username); localStorage.setItem('dan-username', d.username) }
     })
   }, [])
 
