@@ -130,7 +130,7 @@ function TaskModal({ task, projectSlug, username, onClose, onUpdate }: {
 
 // ─── Task Card ────────────────────────────────────────────────────────────────
 
-function TaskCard({ task, projectSlug, onUpdate, onDelete, onOpen, isAdmin, currentUser }: {
+function TaskCard({ task, projectSlug, onUpdate, onDelete, onOpen, isAdmin, currentUser, allTasks }: {
   task: Task
   projectSlug: string
   onUpdate: (updated: Task) => void
@@ -138,6 +138,7 @@ function TaskCard({ task, projectSlug, onUpdate, onDelete, onOpen, isAdmin, curr
   onOpen: (task: Task) => void
   isAdmin: boolean
   currentUser: string
+  allTasks: Task[]
 }) {
   const [updating, setUpdating] = useState(false)
 
@@ -152,12 +153,16 @@ function TaskCard({ task, projectSlug, onUpdate, onDelete, onOpen, isAdmin, curr
     if (res.ok) {
       onUpdate({ ...task, status: next })
       if (next === 'DONE') {
+        // Count remaining active tasks for this user (excluding the one just completed)
+        const remaining = allTasks.filter(
+          t => t.assignedTo === currentUser && t.status !== 'DONE' && t.id !== task.id
+        ).length
         await fetch(`/api/projects/${projectSlug}/messages`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             author: currentUser,
-            content: `✓ Task completed with no additional notes: **${task.title}**\n@Daneel`,
+            content: `✓ Task completed with no additional notes: **${task.title}**\n(${currentUser} has ${remaining} active task${remaining === 1 ? '' : 's'} remaining — ${remaining === 0 ? 'queue is now empty' : 'do not assign new tasks unless asked'})\n@Daneel`,
           }),
         })
       }
@@ -214,7 +219,7 @@ function TaskCard({ task, projectSlug, onUpdate, onDelete, onOpen, isAdmin, curr
   )
 }
 
-function TaskGroup({ title, tasks, projectSlug, onUpdate, onDelete, onOpen, isAdmin, currentUser }: {
+function TaskGroup({ title, tasks, projectSlug, onUpdate, onDelete, onOpen, isAdmin, currentUser, allTasks }: {
   title: string
   tasks: Task[]
   projectSlug: string
@@ -223,6 +228,7 @@ function TaskGroup({ title, tasks, projectSlug, onUpdate, onDelete, onOpen, isAd
   onOpen: (t: Task) => void
   isAdmin: boolean
   currentUser: string
+  allTasks: Task[]
 }) {
   const [collapsed, setCollapsed] = useState(title === 'Done')
   if (tasks.length === 0) return null
@@ -239,7 +245,7 @@ function TaskGroup({ title, tasks, projectSlug, onUpdate, onDelete, onOpen, isAd
         <div className="space-y-2">
           {tasks.map(t => (
             <TaskCard key={t.id} task={t} projectSlug={projectSlug}
-              onUpdate={onUpdate} onDelete={onDelete} onOpen={onOpen} isAdmin={isAdmin} currentUser={currentUser} />
+              onUpdate={onUpdate} onDelete={onDelete} onOpen={onOpen} isAdmin={isAdmin} currentUser={currentUser} allTasks={allTasks} />
           ))}
         </div>
       )}
@@ -341,11 +347,11 @@ export default function TasksPage({ project }: { project: { name: string; slug: 
             ) : (
               <>
                 <TaskGroup title="In Progress" tasks={myInProgress} projectSlug={project.slug}
-                  onUpdate={handleUpdate} onDelete={handleDelete} onOpen={setSelectedTask} isAdmin={isAdmin} currentUser={displayUsername} />
+                  onUpdate={handleUpdate} onDelete={handleDelete} onOpen={setSelectedTask} isAdmin={isAdmin} currentUser={displayUsername} allTasks={allTasks} />
                 <TaskGroup title="To Do" tasks={myTodo} projectSlug={project.slug}
-                  onUpdate={handleUpdate} onDelete={handleDelete} onOpen={setSelectedTask} isAdmin={isAdmin} currentUser={displayUsername} />
+                  onUpdate={handleUpdate} onDelete={handleDelete} onOpen={setSelectedTask} isAdmin={isAdmin} currentUser={displayUsername} allTasks={allTasks} />
                 <TaskGroup title="Done" tasks={myDone} projectSlug={project.slug}
-                  onUpdate={handleUpdate} onDelete={handleDelete} onOpen={setSelectedTask} isAdmin={isAdmin} currentUser={displayUsername} />
+                  onUpdate={handleUpdate} onDelete={handleDelete} onOpen={setSelectedTask} isAdmin={isAdmin} currentUser={displayUsername} allTasks={allTasks} />
               </>
             )}
           </>
@@ -368,7 +374,7 @@ export default function TasksPage({ project }: { project: { name: string; slug: 
                   <div className="space-y-2 ml-1">
                     {userTasks.filter(t => t.status !== 'DONE').map(t => (
                       <TaskCard key={t.id} task={t} projectSlug={project.slug}
-                        onUpdate={handleUpdate} onDelete={handleDelete} onOpen={setSelectedTask} isAdmin={isAdmin} currentUser={displayUsername} />
+                        onUpdate={handleUpdate} onDelete={handleDelete} onOpen={setSelectedTask} isAdmin={isAdmin} currentUser={displayUsername} allTasks={allTasks} />
                     ))}
                     {userTasks.filter(t => t.status === 'DONE').length > 0 && (
                       <p className="text-xs text-slate-600 px-1">{userTasks.filter(t => t.status === 'DONE').length} completed</p>
