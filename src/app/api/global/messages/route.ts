@@ -30,6 +30,16 @@ Stay sharp.`
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const afterId = searchParams.get('afterId')
+  const beforeId = searchParams.get('beforeId')
+
+  if (beforeId) {
+    const messages = await prisma.globalMessage.findMany({
+      where: { id: { lt: parseInt(beforeId) } },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    })
+    return NextResponse.json(messages.reverse())
+  }
 
   const messages = await prisma.globalMessage.findMany({
     where: afterId ? { id: { gt: parseInt(afterId) } } : {},

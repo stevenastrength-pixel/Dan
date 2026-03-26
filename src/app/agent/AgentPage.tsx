@@ -41,6 +41,8 @@ export default function GlobalChatPage() {
   const [sending, setSending] = useState(false)
   const [thinking, setThinking] = useState(false)
   const [onlineUsers, setOnlineUsers] = useState<string[]>([])
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingOlder, setLoadingOlder] = useState(false)
 
   // @ mention
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
@@ -77,9 +79,25 @@ export default function GlobalChatPage() {
       .then((msgs: GlobalMessage[]) => {
         setMessages(msgs)
         if (msgs.length > 0) lastIdRef.current = msgs[msgs.length - 1].id
+        setHasMore(msgs.length >= 200)
       })
       .catch(() => {})
   }, [])
+
+  const loadOlder = async () => {
+    if (loadingOlder || messages.length === 0) return
+    setLoadingOlder(true)
+    try {
+      const oldest = messages[0].id
+      const res = await fetch(`/api/global/messages?beforeId=${oldest}`)
+      const older: GlobalMessage[] = await res.json()
+      if (older.length > 0) {
+        setMessages(prev => [...older.filter(m => !prev.some(p => p.id === m.id)), ...prev])
+      }
+      setHasMore(older.length >= 50)
+    } catch {}
+    finally { setLoadingOlder(false) }
+  }
 
   // Poll for new messages
   useEffect(() => {
@@ -207,6 +225,15 @@ export default function GlobalChatPage() {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+        {hasMore && (
+          <div className="flex justify-center pt-1 pb-2">
+            <button onClick={loadOlder} disabled={loadingOlder}
+              className="text-xs text-slate-500 hover:text-slate-300 px-3 py-1.5 rounded-lg border border-slate-800 hover:border-slate-700 transition-colors disabled:opacity-40">
+              {loadingOlder ? 'Loading…' : '↑ Load older messages'}
+            </button>
+          </div>
+        )}
+
         {messages.length === 0 && !thinking && (
           <div className="text-center mt-10">
             <p className="text-3xl mb-2 text-emerald-500">⬡</p>

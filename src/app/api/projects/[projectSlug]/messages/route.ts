@@ -18,9 +18,20 @@ export async function GET(
 ) {
   const { searchParams } = new URL(request.url)
   const afterId = searchParams.get('afterId')
+  const beforeId = searchParams.get('beforeId')
 
   const project = await prisma.project.findUnique({ where: { slug: params.projectSlug } })
   if (!project) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  if (beforeId) {
+    // Load older messages: fetch 50 before this id, return in asc order
+    const messages = await prisma.projectMessage.findMany({
+      where: { projectId: project.id, id: { lt: parseInt(beforeId) } },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    })
+    return NextResponse.json(messages.reverse())
+  }
 
   const messages = await prisma.projectMessage.findMany({
     where: {
