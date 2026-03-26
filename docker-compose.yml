@@ -5,11 +5,11 @@ services:
       - "3000:3000"
     volumes:
       # Persist the SQLite database across container restarts and updates
-      - novel-data:/app/data
+      - dan-data:/app/data
     environment:
-      - DATABASE_URL=file:/app/data/novel.db
+      - DATABASE_URL=file:/app/data/dan.db
       - NODE_ENV=production
     restart: unless-stopped
 
 volumes:
-  novel-data:
+  dan-data:
