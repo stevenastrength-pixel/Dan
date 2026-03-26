@@ -614,7 +614,6 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
     setInput('')
     setMentionQuery(null)
     setSending(true)
-    inputRef.current?.focus()
 
     const mentionsDaneel = /@daneel\b/i.test(text)
     if (mentionsDaneel) setThinking(true)
@@ -640,7 +639,6 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
     finally {
       setSending(false)
       setThinking(false)
-      setTimeout(() => inputRef.current?.focus(), 0)
     }
   }
 
@@ -764,8 +762,7 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
             onKeyDown={handleKeyDown}
             onClick={e => updateMentionQuery(input, (e.target as HTMLInputElement).selectionStart ?? input.length)}
             placeholder="Message… (@Daneel for AI, @name to tag)"
-            disabled={sending}
-            className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 disabled:opacity-50"
+            className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
           />
           <button
             onClick={send}
