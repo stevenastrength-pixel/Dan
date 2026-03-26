@@ -41,13 +41,21 @@ export async function GET(request: Request) {
     return NextResponse.json(messages.reverse())
   }
 
-  const messages = await prisma.globalMessage.findMany({
-    where: afterId ? { id: { gt: parseInt(afterId) } } : {},
-    orderBy: { createdAt: 'asc' },
-    take: afterId ? 100 : 200,
-  })
+  if (afterId) {
+    const messages = await prisma.globalMessage.findMany({
+      where: { id: { gt: parseInt(afterId) } },
+      orderBy: { createdAt: 'asc' },
+      take: 100,
+    })
+    return NextResponse.json(messages)
+  }
 
-  return NextResponse.json(messages)
+  // Initial load: return the newest 200
+  const messages = await prisma.globalMessage.findMany({
+    orderBy: { createdAt: 'desc' },
+    take: 200,
+  })
+  return NextResponse.json(messages.reverse())
 }
 
 // ─── POST: post a message; call AI only if @Daneel is mentioned ───────────────

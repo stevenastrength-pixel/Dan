@@ -24,7 +24,6 @@ export async function GET(
   if (!project) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   if (beforeId) {
-    // Load older messages: fetch 50 before this id, return in asc order
     const messages = await prisma.projectMessage.findMany({
       where: { projectId: project.id, id: { lt: parseInt(beforeId) } },
       orderBy: { createdAt: 'desc' },
@@ -33,16 +32,22 @@ export async function GET(
     return NextResponse.json(messages.reverse())
   }
 
-  const messages = await prisma.projectMessage.findMany({
-    where: {
-      projectId: project.id,
-      ...(afterId ? { id: { gt: parseInt(afterId) } } : {}),
-    },
-    orderBy: { createdAt: 'asc' },
-    take: afterId ? 100 : 200,
-  })
+  if (afterId) {
+    const messages = await prisma.projectMessage.findMany({
+      where: { projectId: project.id, id: { gt: parseInt(afterId) } },
+      orderBy: { createdAt: 'asc' },
+      take: 100,
+    })
+    return NextResponse.json(messages)
+  }
 
-  return NextResponse.json(messages)
+  // Initial load: return the newest 200
+  const messages = await prisma.projectMessage.findMany({
+    where: { projectId: project.id },
+    orderBy: { createdAt: 'desc' },
+    take: 200,
+  })
+  return NextResponse.json(messages.reverse())
 }
 
 // ─── POST: post a message; call AI only if @Daneel is mentioned ───────────────
