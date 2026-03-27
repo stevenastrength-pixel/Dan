@@ -56,6 +56,12 @@ export default function GlobalChatPage() {
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
+    if (!inputRef.current) return
+    inputRef.current.style.height = 'auto'
+    inputRef.current.style.height = input ? Math.min(inputRef.current.scrollHeight, 120) + 'px' : 'auto'
+  }, [input])
+
+  useEffect(() => {
     if (!ctxMenu) return
     const close = () => setCtxMenu(null)
     const timer = setTimeout(() => window.addEventListener('mousedown', close), 0)
