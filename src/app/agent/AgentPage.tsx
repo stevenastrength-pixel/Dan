@@ -237,11 +237,11 @@ export default function GlobalChatPage() {
       </div>
 
       {/* Messages */}
-      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-2 bg-slate-50 dark:bg-slate-950">
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-1 bg-[#eae6df] dark:bg-[#17212b]">
         {hasMore && (
-          <div className="flex justify-center pt-1 pb-2">
+          <div className="flex justify-center pt-1 pb-3">
             <button onClick={loadOlder} disabled={loadingOlder}
-              className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 px-3 py-1.5 rounded-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-transparent hover:bg-slate-100 dark:hover:bg-transparent transition-colors disabled:opacity-40">
+              className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 px-3 py-1.5 rounded-full border border-slate-300 dark:border-slate-600 bg-white/70 dark:bg-slate-800/70 hover:bg-white dark:hover:bg-slate-700 transition-colors disabled:opacity-40">
               {loadingOlder ? 'Loading…' : '↑ Load older messages'}
             </button>
           </div>
@@ -250,29 +250,31 @@ export default function GlobalChatPage() {
         {messages.length === 0 && !thinking && (
           <div className="text-center mt-10">
             <p className="text-3xl mb-2 text-emerald-500">⬡</p>
-            <p className="text-sm text-slate-400">No messages yet. Say hi, or @Daneel to get started.</p>
+            <p className="text-sm text-slate-500">No messages yet. Say hi, or @Daneel to get started.</p>
           </div>
         )}
 
         {messages.map(msg => {
           const isMe = msg.author === username
           const isDaneel = msg.author === DANEEL
+          const time = new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
           return (
             <div key={msg.id} id={`msg-${msg.id}`} className={`flex gap-2 items-end ${isMe ? 'justify-end' : 'justify-start'}`}>
               {!isMe && <Avatar name={msg.author} />}
-              <div className={`max-w-[75%] px-4 py-2.5 text-sm shadow-sm ${
-                isDaneel
-                  ? 'bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 rounded-2xl rounded-tl-none border-l-2 border-emerald-500'
-                  : isMe
-                  ? 'bg-slate-600 text-slate-50 rounded-2xl rounded-tr-none'
-                  : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-2xl rounded-tl-none'
+              <div className={`max-w-[75%] px-3.5 py-2 text-sm shadow-sm ${
+                isMe
+                  ? 'bg-[#effdde] dark:bg-[#2b5278] text-slate-800 dark:text-slate-100 rounded-2xl rounded-tr-sm'
+                  : 'bg-white dark:bg-[#182533] text-slate-800 dark:text-slate-100 rounded-2xl rounded-tl-sm'
               }`}>
                 {!isMe && (
-                  <p className={`text-xs mb-1 font-semibold ${isDaneel ? 'text-emerald-500 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`}>
+                  <p className={`text-xs mb-0.5 font-semibold ${isDaneel ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`}>
                     {msg.author}
                   </p>
                 )}
-                <p className="whitespace-pre-wrap leading-relaxed">{renderContent(msg.content)}</p>
+                <div className="flex items-end gap-3">
+                  <p className="whitespace-pre-wrap leading-relaxed flex-1">{renderContent(msg.content)}</p>
+                  <span className="text-[10px] text-slate-400 dark:text-slate-500 shrink-0 leading-none mb-0.5">{time}</span>
+                </div>
               </div>
               {isMe && <Avatar name={msg.author} />}
             </div>
@@ -282,12 +284,12 @@ export default function GlobalChatPage() {
         {thinking && (
           <div className="flex gap-2 items-end justify-start">
             <Avatar name={DANEEL} />
-            <div className="bg-white dark:bg-slate-900 border-l-2 border-emerald-500 rounded-2xl rounded-tl-none shadow-sm px-4 py-2.5 text-sm text-slate-800 dark:text-slate-100">
-              <p className="text-emerald-500 dark:text-emerald-400 text-xs mb-1 font-semibold">Daneel</p>
-              <span className="flex gap-1 items-center">
-                <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+            <div className="bg-white dark:bg-[#182533] rounded-2xl rounded-tl-sm shadow-sm px-3.5 py-2 text-sm text-slate-800 dark:text-slate-100">
+              <p className="text-emerald-600 dark:text-emerald-400 text-xs mb-0.5 font-semibold">Daneel</p>
+              <span className="flex gap-1 items-center py-0.5">
+                <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
               </span>
             </div>
           </div>
