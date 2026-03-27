@@ -82,7 +82,7 @@ export async function POST(request: Request) {
     }).then(msgs => msgs.reverse()),
   ])
 
-  const provider = (settings.aiProvider ?? 'anthropic') as 'anthropic' | 'openai' | 'openclaw'
+  const provider = (settings?.aiProvider ?? 'anthropic') as 'anthropic' | 'openai' | 'openclaw'
 
   if (provider === 'openclaw' && !settings?.openClawBaseUrl?.trim()) {
     const errMsg = await prisma.globalMessage.create({

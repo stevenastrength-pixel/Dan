@@ -88,7 +88,7 @@ export async function POST(request: Request) {
   const systemPrompt = buildAgentSystemPrompt({
     characters,
     worldEntries,
-    styleGuide: settings.styleGuide,
+    styleGuide: settings?.styleGuide ?? '',
   })
 
   const openClawContext: OpenClawContext = {
@@ -105,7 +105,7 @@ export async function POST(request: Request) {
       type: w.type,
       description: w.description,
     })),
-    styleGuide: settings.styleGuide,
+    styleGuide: settings?.styleGuide ?? '',
     sessionKey: requestingUser?.openClawSessionKey,
   }
 

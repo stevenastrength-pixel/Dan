@@ -43,7 +43,7 @@ export async function POST(request: Request) {
   const systemPrompt = buildSystemPrompt({
     characters,
     worldEntries,
-    styleGuide: settings.styleGuide,
+    styleGuide: settings?.styleGuide ?? '',
     chapter,
   })
 
@@ -61,7 +61,7 @@ export async function POST(request: Request) {
       type: w.type,
       description: w.description,
     })),
-    styleGuide: settings.styleGuide,
+    styleGuide: settings?.styleGuide ?? '',
     sessionKey: requestingUser?.openClawSessionKey,
   }
 
