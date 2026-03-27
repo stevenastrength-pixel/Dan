@@ -715,7 +715,8 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
         {messages.map(msg => {
           const isMe = msg.author === username
           const isDaneel = msg.author === DANEEL
-          const time = new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          const raw = msg.createdAt.endsWith('Z') ? msg.createdAt : msg.createdAt + 'Z'
+          const time = new Date(raw).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
           return (
             <div key={msg.id} id={`msg-${msg.id}`} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-[75%] px-3.5 py-2 text-sm shadow-sm ${
