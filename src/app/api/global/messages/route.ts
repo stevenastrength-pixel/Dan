@@ -61,11 +61,11 @@ export async function GET(request: Request) {
 // ─── POST: post a message; call AI only if @Daneel is mentioned ───────────────
 
 export async function POST(request: Request) {
-  const { author, content, imageUrl } = await request.json()
+  const { author, content, imageUrl, fileName } = await request.json()
   if (!content?.trim() && !imageUrl) return NextResponse.json({ error: 'Empty message' }, { status: 400 })
 
   const message = await prisma.globalMessage.create({
-    data: { role: 'user', author, content: content ?? '', imageUrl: imageUrl ?? null },
+    data: { role: 'user', author, content: content ?? '', imageUrl: imageUrl ?? null, fileName: fileName ?? null },
   })
 
   if (!DANEEL_PATTERN.test(content)) {

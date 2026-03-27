@@ -26,14 +26,15 @@ model Project {
 }
 
 model ProjectMessage {
-  id        Int      @id @default(autoincrement())
-  projectId Int
-  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  role      String   // 'user' | 'assistant'
-  author    String
-  content   String
-  imageUrl  String?
-  createdAt DateTime @default(now())
+  id           Int      @id @default(autoincrement())
+  projectId    Int
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  role         String   // 'user' | 'assistant'
+  author       String
+  content      String
+  imageUrl     String?
+  fileName     String?
+  createdAt    DateTime @default(now())
 }
 
 model GlobalMessage {
@@ -42,6 +43,7 @@ model GlobalMessage {
   author    String
   content   String
   imageUrl  String?
+  fileName  String?
   createdAt DateTime @default(now())
 }
 

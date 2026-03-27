@@ -56,7 +56,7 @@ export async function POST(
   request: Request,
   { params }: { params: { projectSlug: string } }
 ) {
-  const { author, content, imageUrl } = await request.json()
+  const { author, content, imageUrl, fileName } = await request.json()
   if (!content?.trim() && !imageUrl) return NextResponse.json({ error: 'Empty message' }, { status: 400 })
 
   const project = await prisma.project.findUnique({ where: { slug: params.projectSlug } })
@@ -64,7 +64,7 @@ export async function POST(
 
   // Save the user message
   const message = await prisma.projectMessage.create({
-    data: { projectId: project.id, role: 'user', author, content: content ?? '', imageUrl: imageUrl ?? null },
+    data: { projectId: project.id, role: 'user', author, content: content ?? '', imageUrl: imageUrl ?? null, fileName: fileName ?? null },
   })
 
   // Only call AI when @Daneel is mentioned
