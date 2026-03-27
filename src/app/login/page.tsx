@@ -29,7 +29,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-950 px-4 gap-10">
+    <div className="flex-1 flex flex-col items-center justify-center bg-slate-950 px-4 gap-10">
       <DanLogo />
       <div className="w-full max-w-sm">
 

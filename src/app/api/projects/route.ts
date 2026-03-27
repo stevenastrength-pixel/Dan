@@ -264,7 +264,13 @@ export async function GET() {
   const projects = await prisma.project.findMany({
     orderBy: { createdAt: 'asc' },
     include: {
-      _count: { select: { chapters: true, characters: true, polls: true } },
+      _count: {
+        select: {
+          chapters: true,
+          polls: { where: { status: 'OPEN' } },
+          tasks: { where: { status: { not: 'DONE' } } },
+        },
+      },
     },
   })
   return NextResponse.json(projects)

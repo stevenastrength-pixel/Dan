@@ -349,17 +349,33 @@ export default function SettingsPage() {
 
           {form.aiProvider === 'openclaw' && (
             <div className="space-y-4">
-              <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs text-amber-300">
-                OpenClaw routes all agent chat through your dedicated server. The app sends project
-                context, documents, and message history as JSON — your server handles the AI call
-                and returns{' '}
-                <code className="bg-amber-500/20 px-1 rounded">{'{ reply: string }'}</code>.
+              <div className="p-3 bg-slate-800/60 border border-slate-700/60 rounded-lg text-xs text-slate-400 leading-relaxed space-y-1">
+                <p>
+                  <span className="text-slate-300 font-medium">Built-in bridge</span> — click ⚡ below to call your LLM directly from DAN. No external server needed.
+                </p>
+                <p>
+                  <span className="text-slate-300 font-medium">External server</span> — point the URL at your own endpoint. DAN will POST project context, documents, and message history as JSON and expect{' '}
+                  <code className="bg-slate-700 px-1 rounded text-slate-300">{'{ reply: string }'}</code>{' '}back.
+                </p>
               </div>
 
               <div>
                 <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide block mb-1">
                   Server URL <span className="text-red-500">*</span>
                 </label>
+                <div className="flex gap-2 mb-2">
+                  <button
+                    onClick={() => {
+                      const bridgeUrl = window.location.origin + '/api/openclaw-bridge'
+                      setForm({ ...form, openClawBaseUrl: bridgeUrl })
+                      setTestState('idle')
+                    }}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-600/15 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-600/25 transition-colors shrink-0"
+                  >
+                    ⚡ Use built-in bridge
+                  </button>
+                  <span className="text-xs text-slate-600 self-center">— or enter an external server URL below</span>
+                </div>
                 <div className="flex gap-2">
                   <input
                     type="text"
@@ -383,7 +399,7 @@ export default function SettingsPage() {
                   </button>
                 </div>
                 <p className="text-xs text-slate-600 mt-1">
-                  Enter the full endpoint URL (e.g. <code className="bg-slate-800 px-1 rounded text-slate-400">https://my-server.com/dan-agent</code>). Requests are sent directly to this URL.
+                  The built-in bridge calls your configured LLM directly — no separate server needed. OpenClaw continues handling Telegram independently.
                 </p>
                 {testState === 'fail' && testError && (
                   <p className="text-xs text-red-400 mt-1">{testError}</p>
@@ -424,6 +440,8 @@ export default function SettingsPage() {
                   If set, sent as <code className="bg-slate-800 px-1 rounded text-slate-400">Authorization: Bearer …</code> — leave blank for an open server.
                 </p>
               </div>
+
+
             </div>
           )}
         </div>

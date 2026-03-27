@@ -10,7 +10,7 @@ type Project = {
   slug: string
   description: string
   createdAt: string
-  _count: { chapters: number; characters: number; polls: number }
+  _count: { chapters: number; polls: number; tasks: number }
 }
 
 function toSlug(name: string) {
@@ -222,25 +222,27 @@ export default function ProjectsPage() {
                       <p className="text-sm text-slate-500 mt-0.5">{project.description}</p>
                     )}
                     <div className="flex items-center gap-4 mt-2">
-                      <span className="text-xs text-slate-600">
-                        {project._count.chapters} chapter{project._count.chapters !== 1 ? 's' : ''}
-                      </span>
-                      <span className="text-xs text-slate-600">
-                        {project._count.characters} character{project._count.characters !== 1 ? 's' : ''}
-                      </span>
-                      <span className="text-xs text-slate-600">
-                        {project._count.polls} poll{project._count.polls !== 1 ? 's' : ''}
-                      </span>
-                      <span className="text-xs text-slate-600">Created {formatDate(project.createdAt)}</span>
+                      <div className="flex flex-col items-center">
+                        <span className="text-[10px] text-slate-600 uppercase tracking-wide">Chapters</span>
+                        <span className="text-sm font-semibold text-slate-500 tabular-nums">{project._count.chapters}</span>
+                      </div>
+                      <div className="flex flex-col items-center">
+                        <span className="text-[10px] text-slate-600 uppercase tracking-wide">Polls</span>
+                        <span className={`text-sm font-semibold tabular-nums ${project._count.polls === 0 ? 'text-slate-600' : project._count.polls >= 10 ? 'text-red-400' : 'text-amber-400'}`}>
+                          {project._count.polls}
+                        </span>
+                      </div>
+                      <div className="flex flex-col items-center">
+                        <span className="text-[10px] text-slate-600 uppercase tracking-wide">Tasks</span>
+                        <span className={`text-sm font-semibold tabular-nums ${project._count.tasks === 0 ? 'text-slate-600' : project._count.tasks >= 10 ? 'text-red-400' : 'text-amber-400'}`}>
+                          {project._count.tasks}
+                        </span>
+                      </div>
                     </div>
                   </Link>
 
-                  {/* Right controls: slug + gear + arrow */}
+                  {/* Right controls: gear + arrow */}
                   <div className="flex items-center gap-1 pr-2 pl-3 shrink-0">
-                    <span className="text-xs text-slate-600 font-mono bg-slate-800/60 px-2 py-0.5 rounded">
-                      /{project.slug}
-                    </span>
-
                     {/* Gear button */}
                     <button
                       onClick={(e) => {

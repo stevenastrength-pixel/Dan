@@ -345,14 +345,14 @@ export default function TasksPage({ project }: { project: { name: string; slug: 
         <div className="flex items-center gap-2">
           {!showAll && tasks.length > 0 && (
             clearConfirm ? (
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-400">Clear all your tasks?</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-slate-400 whitespace-nowrap">Clear all tasks?</span>
                 <button onClick={clearMyTasks}
-                  className="px-2.5 py-1.5 bg-red-600 text-white rounded-lg text-xs font-medium hover:bg-red-500 transition-colors">
-                  Yes, clear
+                  className="px-2.5 py-1.5 bg-red-600 text-white rounded-lg text-xs font-medium hover:bg-red-500 transition-colors whitespace-nowrap">
+                  Yes
                 </button>
                 <button onClick={() => setClearConfirm(false)}
-                  className="px-2.5 py-1.5 border border-slate-700 rounded-lg text-xs font-medium text-slate-400 hover:border-slate-600 hover:text-slate-300 transition-colors">
+                  className="px-2.5 py-1.5 border border-slate-700 rounded-lg text-xs font-medium text-slate-400 hover:border-slate-600 hover:text-slate-300 transition-colors whitespace-nowrap">
                   Cancel
                 </button>
               </div>

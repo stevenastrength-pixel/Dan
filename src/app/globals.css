@@ -2,6 +2,14 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Android Chrome address-bar dismiss trick ───────────────────────────────
+   The app container is position:fixed so it never visually scrolls, but
+   making the body 1px taller than the viewport gives Chrome the scroll
+   signal it needs to retract the address bar on an upward swipe.
+   ──────────────────────────────────────────────────────────────────────── */
+html { height: 100%; background: #020617; }
+body { min-height: calc(100% + 1px); overflow-y: scroll; background: #020617; }
+
 /* Tiptap editor styles */
 .ProseMirror {
   outline: none;
@@ -44,10 +52,10 @@
 .ProseMirror hr { border: none; border-top: 2px solid #1e293b; margin: 1.5rem 0; }
 
 /* Scrollbar dark */
-::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #334155; }
+::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #475569; }
 
 /* ── Light mode overrides (html:not(.dark)) ─────────────────────────────────
    Specificity of html:not(.dark) .class = 0,2,1 which beats Tailwind's 0,1,0
@@ -131,8 +139,8 @@ html:not(.dark) .ProseMirror code { background: #f1f5f9; color: #0d9488; }
 html:not(.dark) .ProseMirror hr { border-top-color: #e2e8f0; }
 
 /* ── Scrollbar light mode ─────────────────────────────── */
-html:not(.dark) ::-webkit-scrollbar-thumb { background: #cbd5e1; }
-html:not(.dark) ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+html:not(.dark) ::-webkit-scrollbar-thumb { background: #94a3b8; }
+html:not(.dark) ::-webkit-scrollbar-thumb:hover { background: #64748b; }
 
 /* ── Poll card light mode ─────────────────────────────── */
 html:not(.dark) .poll-card { background: #ffffff; border-color: #cbd5e1; }

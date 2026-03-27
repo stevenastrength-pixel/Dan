@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { useMobileMenu } from '@/components/AppShell'
 
 type GlobalMessage = { id: number; role: string; author: string; content: string; imageUrl?: string | null; fileName?: string | null; createdAt: string }
 
@@ -33,6 +34,7 @@ function Avatar({ name }: { name: string }) {
 }
 
 export default function GlobalChatPage() {
+  const { toggle: toggleNav } = useMobileMenu()
   const [username, setUsername] = useState<string | null>(null)
   const [authLoaded, setAuthLoaded] = useState(false)
   const [mounted, setMounted] = useState(false)
@@ -45,6 +47,8 @@ export default function GlobalChatPage() {
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [ctxMenu, setCtxMenu] = useState<{ msg: GlobalMessage; x: number; y: number } | null>(null)
   const [pendingFile, setPendingFile] = useState<{ file: File; preview: string | null; isImage: boolean } | null>(null)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // @ mention
@@ -154,13 +158,18 @@ export default function GlobalChatPage() {
           setMessages(prev => {
             const existingIds = new Set(prev.map(m => m.id))
             const newOnes = fresh.filter(m => !existingIds.has(m.id))
-            return newOnes.length > 0 ? [...prev, ...newOnes] : prev
+            if (newOnes.length === 0) return prev
+            // Retire any optimistic temps now confirmed by a real message
+            const withoutStaleTemps = prev.filter(m =>
+              m.id >= 0 || !newOnes.some(r => r.author === m.author && r.content === m.content)
+            )
+            return [...withoutStaleTemps, ...newOnes]
           })
           lastIdRef.current = fresh[fresh.length - 1].id
           if (fresh.some(m => m.author === DANEEL)) setThinking(false)
         }
       } catch {}
-    }, 2500)
+    }, 1000)
     return () => clearInterval(interval)
   }, [])
 
@@ -238,18 +247,28 @@ export default function GlobalChatPage() {
     if (inputRef.current) { inputRef.current.style.height = 'auto' }
     if (/@daneel\b/i.test(text)) setThinking(true)
 
+    // Optimistic insert — appears instantly
+    const capturedFile = pendingFile
+    setPendingFile(null)
+    const tempId = -Date.now()
+    setMessages(prev => [...prev, {
+      id: tempId, role: 'user', author: username,
+      content: text,
+      imageUrl: capturedFile?.preview ?? null,
+      fileName: capturedFile?.file.name ?? null,
+      createdAt: new Date().toISOString(),
+    }])
+
     let imageUrl: string | null = null
     let fileName: string | null = null
-    if (pendingFile) {
-      const captured = pendingFile
-      setPendingFile(null)
+    if (capturedFile) {
       const fd = new FormData()
-      fd.append('file', captured.file)
+      fd.append('file', capturedFile.file)
       try {
         const up = await fetch('/api/upload', { method: 'POST', body: fd })
         const upData = await up.json()
         imageUrl = upData.url ?? null
-        fileName = upData.name ?? captured.file.name ?? null
+        fileName = upData.name ?? capturedFile.file.name ?? null
       } catch {}
     }
 
@@ -261,9 +280,10 @@ export default function GlobalChatPage() {
       })
       const data = await res.json()
       setMessages(prev => {
-        const existingIds = new Set(prev.map(m => m.id))
+        const withoutTemp = prev.filter(m => m.id !== tempId)
+        const existingIds = new Set(withoutTemp.map(m => m.id))
         const toAdd = [data.message, data.aiMessage].filter(m => m && !existingIds.has(m.id))
-        return toAdd.length > 0 ? [...prev, ...toAdd] : prev
+        return toAdd.length > 0 ? [...withoutTemp, ...toAdd] : withoutTemp
       })
       if (data.message) lastIdRef.current = Math.max(lastIdRef.current, data.aiMessage?.id ?? data.message.id)
     } catch {}
@@ -276,23 +296,90 @@ export default function GlobalChatPage() {
 
   if (!mounted) return null
 
+  const searchResults = searchQuery.trim().length > 0
+    ? messages.filter(m => m.content.toLowerCase().includes(searchQuery.toLowerCase()))
+    : []
+
+  const highlightSnippet = (content: string, query: string) => {
+    const idx = content.toLowerCase().indexOf(query.toLowerCase())
+    if (idx === -1) return <span>{content.slice(0, 120)}</span>
+    const start = Math.max(0, idx - 40)
+    const end = Math.min(content.length, idx + query.length + 80)
+    return (
+      <span>
+        {start > 0 && '…'}{content.slice(start, idx)}
+        <mark className="bg-yellow-200 dark:bg-yellow-500/40 text-inherit rounded px-0.5">{content.slice(idx, idx + query.length)}</mark>
+        {content.slice(idx + query.length, end)}{end < content.length && '…'}
+      </span>
+    )
+  }
+
   return (
-    <div className="flex flex-col h-full bg-slate-950">
-      {/* Header */}
-      <div className="px-6 py-3 border-b border-slate-800/60 shrink-0">
-        <h1 className="text-sm font-semibold text-slate-200 mb-2">Global Chat</h1>
-        <div className="flex items-center gap-2">
-          {/* Daneel always shown */}
-          <Avatar name={DANEEL} />
-          {onlineUsers.map(name => (
-            <Avatar key={name} name={name} />
-          ))}
-          <span className="text-xs text-slate-600 ml-1">{onlineUsers.length} online</span>
+    <div className="flex flex-1 overflow-hidden">
+      {/* Search panel */}
+      {searchOpen && (
+        <div className="w-72 shrink-0 flex flex-col border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 z-10">
+          <div className="px-3 py-2.5 border-b border-slate-200 dark:border-slate-800 flex items-center gap-2">
+            <span className="text-slate-500 dark:text-slate-400 text-sm">🔍</span>
+            <input
+              autoFocus
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search messages…"
+              className="flex-1 text-sm bg-transparent text-slate-800 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-600 focus:outline-none"
+            />
+            <button onClick={() => { setSearchOpen(false); setSearchQuery('') }} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-lg leading-none">✕</button>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            {searchQuery.trim() === '' && (
+              <p className="text-xs text-slate-400 dark:text-slate-600 text-center mt-8 px-4">Type to search messages</p>
+            )}
+            {searchQuery.trim() !== '' && searchResults.length === 0 && (
+              <p className="text-xs text-slate-400 dark:text-slate-600 text-center mt-8 px-4">No messages found</p>
+            )}
+            {searchResults.map(msg => {
+              const raw = msg.createdAt.endsWith('Z') ? msg.createdAt : msg.createdAt + 'Z'
+              const time = new Date(raw).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              return (
+                <button
+                  key={msg.id}
+                  onClick={() => {
+                    const el = document.getElementById(`msg-${msg.id}`)
+                    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                    el?.classList.add('ring-2', 'ring-emerald-400', 'rounded-2xl')
+                    setTimeout(() => el?.classList.remove('ring-2', 'ring-emerald-400', 'rounded-2xl'), 1500)
+                  }}
+                  className="w-full text-left px-3 py-2.5 border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">{msg.author}</span>
+                    <span className="text-[10px] text-slate-400 dark:text-slate-600">{time}</span>
+                  </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed line-clamp-3">
+                    {highlightSnippet(msg.content, searchQuery)}
+                  </p>
+                </button>
+              )
+            })}
+          </div>
         </div>
+      )}
+
+    <div className="flex flex-col flex-1 overflow-hidden bg-slate-950">
+      {/* Header */}
+      <div className="px-4 h-16 border-b border-slate-800/60 shrink-0 flex items-center gap-3">
+        <button onClick={toggleNav} className="md:hidden w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors shrink-0 text-base">☰</button>
+        <h1 className="text-sm font-semibold text-slate-200 mr-1">Global Chat</h1>
+        <Avatar name={DANEEL} />
+        {onlineUsers.map(name => (
+          <Avatar key={name} name={name} />
+        ))}
+        <span className="text-xs text-slate-600 hidden sm:inline">{onlineUsers.length} online</span>
+        <button onClick={() => setSearchOpen(o => !o)} title="Search messages" className={`ml-auto px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${searchOpen ? 'bg-emerald-600/20 border-emerald-500/40 text-emerald-300' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600'}`}>Search</button>
       </div>
 
       {/* Messages */}
-      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-1 bg-[#eae6df] dark:bg-[#17212b]">
+      <div ref={scrollContainerRef} data-no-squish className="flex-1 overflow-y-auto px-4 py-3 space-y-1 bg-[#eae6df] dark:bg-[#17212b]">
         {hasMore && (
           <div className="flex justify-center pt-1 pb-3">
             <button onClick={loadOlder} disabled={loadingOlder}
@@ -428,7 +515,7 @@ export default function GlobalChatPage() {
             onClick={() => fileInputRef.current?.click()}
             disabled={sending || (authLoaded && !username)}
             title="Attach file"
-            className="px-2 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 rounded-lg text-sm hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-40 transition-colors shrink-0"
+            className="w-10 h-10 flex items-center justify-center bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 rounded-lg text-sm hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-40 transition-colors shrink-0"
           >
             📎
           </button>
@@ -441,7 +528,7 @@ export default function GlobalChatPage() {
             }}
             disabled={sending}
             title="Tag Daneel"
-            className="px-2 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-emerald-500 dark:text-emerald-400 rounded-lg text-sm hover:bg-slate-200 dark:hover:bg-slate-700 hover:border-emerald-500/40 disabled:opacity-40 transition-colors shrink-0"
+            className="w-10 h-10 flex items-center justify-center bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-emerald-500 dark:text-emerald-400 rounded-lg text-sm hover:bg-slate-200 dark:hover:bg-slate-700 hover:border-emerald-500/40 disabled:opacity-40 transition-colors shrink-0"
           >
             ⬡
           </button>
@@ -461,7 +548,7 @@ export default function GlobalChatPage() {
               if (file) { e.preventDefault(); attachFile(file) }
             }}
             onClick={e => updateMentionQuery(input, (e.target as HTMLTextAreaElement).selectionStart ?? input.length)}
-            placeholder={authLoaded && !username ? 'Log in to chat…' : 'Message… (@Daneel for AI, @name to tag)'}
+            placeholder={authLoaded && !username ? 'Log in to chat…' : 'Message…'}
             disabled={authLoaded && !username}
             className="flex-1 bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-800 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 disabled:opacity-40 resize-none overflow-hidden leading-relaxed"
           />
@@ -474,6 +561,7 @@ export default function GlobalChatPage() {
           </button>
         </div>
       </div>
+    </div>
     </div>
   )
 }

@@ -2,12 +2,11 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
-import { ThemeToggle } from '@/components/ThemeToggle'
+import { useMobileMenu } from '@/components/AppShell'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type ProjectMessage = { id: number; role: 'user' | 'assistant'; author: string; content: string; imageUrl?: string | null; fileName?: string | null; createdAt: string }
-type ChatMessage = { role: 'user' | 'assistant'; content: string; author?: string }
 type ProjectInfo = { id: number; name: string; slug: string; description: string }
 type ProjectDocument = { id: number; key: string; title: string; content: string; updatedAt: string }
 type Poll = {
@@ -169,7 +168,7 @@ function Sidebar({
   const [docsOpen, setDocsOpen] = useState(true)
 
   return (
-    <div className="w-64 border-l border-slate-800/60 flex flex-col shrink-0 bg-slate-900/40 overflow-y-auto">
+    <div className="w-64 h-full border-l border-slate-800/60 flex flex-col shrink-0 bg-slate-950 overflow-y-auto">
       {/* Documents */}
       <div className="border-b border-slate-800/60">
         <div className="flex items-center justify-between px-3 py-2">
@@ -492,6 +491,8 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [ctxMenu, setCtxMenu] = useState<{ msg: ProjectMessage; x: number; y: number } | null>(null)
   const [pendingFile, setPendingFile] = useState<{ file: File; preview: string | null; isImage: boolean } | null>(null)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
 
   const lastIdRef = useRef<number>(0)
   const anchorIdRef = useRef<number | null>(null)
@@ -587,13 +588,18 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
           setMessages(prev => {
             const existingIds = new Set(prev.map(m => m.id))
             const newOnes = fresh.filter(m => !existingIds.has(m.id))
-            return newOnes.length > 0 ? [...prev, ...newOnes] : prev
+            if (newOnes.length === 0) return prev
+            // Retire any optimistic temps now confirmed by a real message
+            const withoutStaleTemps = prev.filter(m =>
+              m.id >= 0 || !newOnes.some(r => r.author === m.author && r.content === m.content)
+            )
+            return [...withoutStaleTemps, ...newOnes]
           })
           lastIdRef.current = fresh[fresh.length - 1].id
           if (fresh.some(m => m.author === DANEEL)) setThinking(false)
         }
       } catch {}
-    }, 2500)
+    }, 1000)
     return () => clearInterval(interval)
   }, [projectSlug])
 
@@ -691,18 +697,28 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
     setSending(true)
     if (inputRef.current) { inputRef.current.style.height = 'auto' }
 
+    // Optimistic insert — appears instantly
+    const capturedFile = pendingFile
+    setPendingFile(null)
+    const tempId = -Date.now()
+    setMessages(prev => [...prev, {
+      id: tempId, role: 'user' as const, author: username,
+      content: text,
+      imageUrl: capturedFile?.preview ?? null,
+      fileName: capturedFile?.file.name ?? null,
+      createdAt: new Date().toISOString(),
+    }])
+
     let imageUrl: string | null = null
     let fileName: string | null = null
-    if (pendingFile) {
-      const captured = pendingFile
-      setPendingFile(null)
+    if (capturedFile) {
       const fd = new FormData()
-      fd.append('file', captured.file)
+      fd.append('file', capturedFile.file)
       try {
         const up = await fetch('/api/upload', { method: 'POST', body: fd })
         const upData = await up.json()
         imageUrl = upData.url ?? null
-        fileName = upData.name ?? captured.file.name ?? null
+        fileName = upData.name ?? capturedFile.file.name ?? null
       } catch {}
     }
 
@@ -717,9 +733,10 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
       })
       const data = await res.json()
       setMessages(prev => {
-        const existingIds = new Set(prev.map(m => m.id))
+        const withoutTemp = prev.filter(m => m.id !== tempId)
+        const existingIds = new Set(withoutTemp.map(m => m.id))
         const toAdd = [data.message, data.aiMessage].filter(m => m && !existingIds.has(m.id))
-        return toAdd.length > 0 ? [...prev, ...toAdd] : prev
+        return toAdd.length > 0 ? [...withoutTemp, ...toAdd] : withoutTemp
       })
       if (data.message) lastIdRef.current = Math.max(lastIdRef.current, data.aiMessage?.id ?? data.message.id)
       if (data.aiMessage?.content?.includes('📝')) onDocumentUpdated?.()
@@ -736,7 +753,75 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
   // All known participants including Daneel (always shown)
   const allParticipants = [DANEEL, ...allUsers.filter(u => u !== DANEEL)]
 
+  const searchResults = searchQuery.trim().length > 0
+    ? messages.filter(m => m.content.toLowerCase().includes(searchQuery.toLowerCase()))
+    : []
+
+  const highlightSnippet = (content: string, query: string) => {
+    const idx = content.toLowerCase().indexOf(query.toLowerCase())
+    if (idx === -1) return <span>{content.slice(0, 120)}</span>
+    const start = Math.max(0, idx - 40)
+    const end = Math.min(content.length, idx + query.length + 80)
+    return (
+      <span>
+        {start > 0 && '…'}{content.slice(start, idx)}
+        <mark className="bg-yellow-200 dark:bg-yellow-500/40 text-inherit rounded px-0.5">{content.slice(idx, idx + query.length)}</mark>
+        {content.slice(idx + query.length, end)}{end < content.length && '…'}
+      </span>
+    )
+  }
+
   return (
+    <div className="flex flex-1 overflow-hidden">
+      {/* Search panel */}
+      {searchOpen && (
+        <div className="w-72 shrink-0 flex flex-col border-r border-slate-700/60 bg-slate-900 z-10">
+          <div className="px-3 py-2.5 border-b border-slate-700/60 flex items-center gap-2">
+            <span className="text-slate-500 text-sm">🔍</span>
+            <input
+              autoFocus
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search messages…"
+              className="flex-1 text-sm bg-transparent text-slate-200 placeholder:text-slate-600 focus:outline-none"
+            />
+            <button onClick={() => { setSearchOpen(false); setSearchQuery('') }} className="text-slate-500 hover:text-slate-200 transition-colors text-lg leading-none">✕</button>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            {searchQuery.trim() === '' && (
+              <p className="text-xs text-slate-600 text-center mt-8 px-4">Type to search messages</p>
+            )}
+            {searchQuery.trim() !== '' && searchResults.length === 0 && (
+              <p className="text-xs text-slate-600 text-center mt-8 px-4">No messages found</p>
+            )}
+            {searchResults.map(msg => {
+              const raw = msg.createdAt.endsWith('Z') ? msg.createdAt : msg.createdAt + 'Z'
+              const time = new Date(raw).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              return (
+                <button
+                  key={msg.id}
+                  onClick={() => {
+                    const el = document.getElementById(`msg-${msg.id}`)
+                    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                    el?.classList.add('ring-2', 'ring-emerald-400', 'rounded-2xl')
+                    setTimeout(() => el?.classList.remove('ring-2', 'ring-emerald-400', 'rounded-2xl'), 1500)
+                  }}
+                  className="w-full text-left px-3 py-2.5 border-b border-slate-800 hover:bg-slate-800/60 transition-colors"
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-semibold text-slate-300">{msg.author}</span>
+                    <span className="text-[10px] text-slate-600">{time}</span>
+                  </div>
+                  <p className="text-xs text-slate-400 leading-relaxed line-clamp-3">
+                    {highlightSnippet(msg.content, searchQuery)}
+                  </p>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
     <div className="flex flex-col flex-1 overflow-hidden bg-slate-950">
 
       {/* Presence bar */}
@@ -749,10 +834,11 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
         <span className="text-xs text-slate-600 ml-1">
           {onlineUsers.length} online
         </span>
+        <button onClick={() => setSearchOpen(o => !o)} title="Search messages" className={`ml-auto px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${searchOpen ? 'bg-emerald-600/20 border-emerald-500/40 text-emerald-300' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600'}`}>Search</button>
       </div>
 
       {/* Messages */}
-      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-1 bg-[#eae6df] dark:bg-[#17212b]">
+      <div ref={scrollContainerRef} data-no-squish className="flex-1 overflow-y-auto px-4 py-3 space-y-1 bg-[#eae6df] dark:bg-[#17212b]">
         {hasMore && (
           <div className="flex justify-center pt-1 pb-3">
             <button onClick={loadOlder} disabled={loadingOlder}
@@ -889,12 +975,12 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
           </div>
         )}
         <input ref={fileInputRef} type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) attachFile(f); e.target.value = '' }} />
-        <div className="flex gap-2 pr-4 sm:pr-8 md:pr-16">
+        <div className="flex gap-2">
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={sending}
             title="Attach file"
-            className="px-2 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 rounded-lg text-sm hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-40 transition-colors shrink-0"
+            className="w-10 h-10 flex items-center justify-center bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 rounded-lg text-base hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-40 transition-colors shrink-0"
           >
             📎
           </button>
@@ -911,7 +997,7 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
             }}
             disabled={sending}
             title="Tag Daneel"
-            className="px-2 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-emerald-500 dark:text-emerald-400 rounded-lg text-sm hover:bg-slate-200 dark:hover:bg-slate-700 hover:border-emerald-500/40 disabled:opacity-40 transition-colors shrink-0"
+            className="w-10 h-10 flex items-center justify-center bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-emerald-500 dark:text-emerald-400 rounded-lg text-base hover:bg-slate-200 dark:hover:bg-slate-700 hover:border-emerald-500/40 disabled:opacity-40 transition-colors shrink-0"
           >
             ⬡
           </button>
@@ -926,262 +1012,50 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
               if (file) { e.preventDefault(); attachFile(file) }
             }}
             onClick={e => updateMentionQuery(input, (e.target as HTMLTextAreaElement).selectionStart ?? input.length)}
-            placeholder="Message… (@Daneel for AI, @name to tag)"
+            placeholder="Message…"
             className="flex-1 bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-800 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 resize-none overflow-hidden leading-relaxed"
           />
           <button
             onClick={send}
             disabled={(!input.trim() && !pendingFile) || sending}
-            className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-500 disabled:opacity-40 transition-colors"
+            className="w-10 h-10 flex items-center justify-center bg-emerald-600 text-white rounded-lg text-base font-medium hover:bg-emerald-500 disabled:opacity-40 transition-colors shrink-0"
           >
             {sending ? '…' : '↑'}
           </button>
         </div>
       </div>
     </div>
-  )
-}
-
-// ─── Polls Panel ──────────────────────────────────────────────────────────────
-
-function PollsPanel({ projectSlug, username, polls, onRefresh, onPollClosed, onlineUsers, isAdmin }: {
-  projectSlug: string; username: string; polls: Poll[]; onRefresh: () => void
-  onPollClosed: (summary: string) => void; onlineUsers: string[]; isAdmin: boolean
-}) {
-  const [open, setOpen] = useState(true)
-  const [showCreate, setShowCreate] = useState(false)
-  const [question, setQuestion] = useState('')
-  const [options, setOptions] = useState(['', ''])
-  const [creating, setCreating] = useState(false)
-  const [closedExpanded, setClosedExpanded] = useState(false)
-
-  const createPoll = async () => {
-    const valid = options.filter(o => o.trim())
-    if (!question.trim() || valid.length < 2) return
-    setCreating(true)
-    await fetch(`/api/projects/${projectSlug}/polls`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question: question.trim(), options: valid, createdBy: username }),
-    })
-    setQuestion(''); setOptions(['', '']); setShowCreate(false); setCreating(false); onRefresh()
-  }
-
-  const vote = async (pollId: number, optionIdx: number) => {
-    await fetch(`/api/polls/${pollId}/vote`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ voterName: username, optionIdx }),
-    })
-    onRefresh()
-  }
-
-  const deletePoll = async (pollId: number) => {
-    await fetch(`/api/polls/${pollId}`, { method: 'DELETE' })
-    onRefresh()
-  }
-
-  const closePoll = async (pollId: number) => {
-    await fetch(`/api/polls/${pollId}/close`, { method: 'POST' })
-    onRefresh()
-
-    const poll = polls.find(p => p.id === pollId)
-    if (!poll) return
-    const tallies = poll.options.map((_, i) => poll.votes.filter(v => v.optionIdx === i).length)
-    const total = poll.votes.length
-    const maxTally = Math.max(...tallies, 0)
-    const lines = poll.options.map((opt, i) => {
-      const count = tallies[i]
-      const pct = total > 0 ? Math.round((count / total) * 100) : 0
-      const winner = count === maxTally && total > 0
-      return `• ${opt} — ${count} vote${count !== 1 ? 's' : ''}${pct > 0 ? ` (${pct}%)` : ''}${winner ? ' 🏆' : ''}`
-    }).join('\n')
-    const summary = `📊 Poll closed: **"${poll.question}"**\n${lines}\n\n@Daneel the team has voted — acknowledge the result and factor it into the project if relevant.`
-    onPollClosed(summary)
-  }
-
-  const openPolls = polls.filter(p => p.status === 'OPEN')
-  const closedPolls = polls.filter(p => p.status === 'CLOSED')
-
-  return (
-    <div className="border-t border-slate-800/60 bg-slate-900/30 shrink-0" style={{ maxHeight: '45%' }}>
-      <div className="flex items-center justify-between px-4 py-2 border-b border-slate-800/60">
-        <button onClick={() => setOpen(v => !v)}
-          className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 uppercase tracking-wide hover:text-slate-300 transition-colors">
-          <span>{open ? '▼' : '▶'}</span> Poll Control
-          {openPolls.length > 0 && (
-            <span className="bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded-full text-xs font-medium">{openPolls.length}</span>
-          )}
-        </button>
-        {open && (
-          <button onClick={() => setShowCreate(v => !v)}
-            className="text-xs text-emerald-400 hover:text-emerald-300 font-medium transition-colors">
-            {showCreate ? 'Cancel' : '+ New Poll'}
-          </button>
-        )}
-      </div>
-      {open && (
-        <div className="overflow-y-auto" style={{ maxHeight: 'calc(45vh - 2rem)' }}>
-          {showCreate && (
-            <div className="px-4 py-3 border-b border-slate-800/60 bg-slate-900/50">
-              <input value={question} onChange={e => setQuestion(e.target.value)} placeholder="Poll question…"
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 mb-2" />
-              <div className="space-y-1.5 mb-2">
-                {options.map((opt, i) => (
-                  <div key={i} className="flex gap-2">
-                    <input value={opt} onChange={e => { const n = [...options]; n[i] = e.target.value; setOptions(n) }}
-                      placeholder={`Option ${i + 1}`}
-                      className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/40" />
-                    {options.length > 2 && (
-                      <button onClick={() => setOptions(options.filter((_, j) => j !== i))}
-                        className="text-slate-600 hover:text-red-400 text-sm transition-colors">✕</button>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <div className="flex items-center justify-between">
-                <button onClick={() => setOptions([...options, ''])} className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors">+ Add option</button>
-                <button onClick={createPoll} disabled={creating || !question.trim() || options.filter(o => o.trim()).length < 2}
-                  className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-medium hover:bg-emerald-500 disabled:opacity-40 transition-colors">
-                  {creating ? 'Creating…' : 'Create'}
-                </button>
-              </div>
-            </div>
-          )}
-          <div className="p-3 space-y-2">
-            {openPolls.length === 0 && !showCreate && <p className="text-xs text-slate-600 text-center py-2">No open polls.</p>}
-            {openPolls.map(p => <PollCard key={p.id} poll={p} username={username} onVote={idx => vote(p.id, idx)} onClose={() => closePoll(p.id)} onDelete={() => deletePoll(p.id)} onlineUsers={onlineUsers} isAdmin={isAdmin} />)}
-            {closedPolls.length > 0 && (
-              <div>
-                <button onClick={() => setClosedExpanded(v => !v)}
-                  className="flex items-center gap-1.5 text-xs text-slate-600 hover:text-slate-400 w-full py-1 transition-colors">
-                  <span>{closedExpanded ? '▼' : '▶'}</span> Closed ({closedPolls.length})
-                </button>
-                {closedExpanded && closedPolls.map(p => <PollCard key={p.id} poll={p} username={username} onVote={() => {}} onClose={() => {}} onDelete={() => deletePoll(p.id)} onlineUsers={[]} isAdmin={isAdmin} />)}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function PollCard({ poll, username, onVote, onClose, onDelete, onlineUsers, isAdmin }: {
-  poll: Poll; username: string; onVote: (idx: number) => void; onClose: () => void; onDelete: () => void
-  onlineUsers: string[]; isAdmin: boolean
-}) {
-  const myVote = poll.votes.find(v => v.voterName === username)
-  const totalVotes = poll.votes.length
-  const tallies = poll.options.map((_, i) => poll.votes.filter(v => v.optionIdx === i).length)
-  const maxTally = Math.max(...tallies, 0)
-  const isOpen = poll.status === 'OPEN'
-
-  // Close button logic: show when all online users have voted, or admin override
-  const voterNames = new Set(poll.votes.map(v => v.voterName))
-  const waitingOn = onlineUsers.filter(u => !voterNames.has(u))
-  const allVoted = waitingOn.length === 0 && onlineUsers.length > 0
-  const canClose = allVoted || isAdmin
-
-  return (
-    <div className={`rounded-lg border p-3 ${isOpen
-      ? 'border-slate-700/60 bg-slate-950/80 dark:border-slate-700/60 dark:bg-slate-950/80'
-      : 'border-slate-800/40 bg-slate-900/40 dark:border-slate-800/40 dark:bg-slate-900/40 opacity-60'
-    } poll-card`}>
-      <div className="flex items-start justify-between gap-2 mb-2">
-        <div className="flex-1 min-w-0">
-          <span className={`inline-block text-xs font-medium px-1.5 py-0.5 rounded mb-1 ${isOpen ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' : 'bg-slate-200/60 dark:bg-slate-700/40 text-slate-500'}`}>
-            {isOpen ? 'OPEN' : 'CLOSED'}
-          </span>
-          <p className="text-sm font-medium text-slate-800 dark:text-slate-200 leading-snug">{poll.question}</p>
-          <p className="text-xs text-slate-500 dark:text-slate-600 mt-0.5">{poll.createdBy} · {totalVotes} vote{totalVotes !== 1 ? 's' : ''}</p>
-        </div>
-        {isAdmin && (
-          <button
-            onClick={onDelete}
-            className="text-xs text-slate-400 dark:text-slate-600 hover:text-red-500 dark:hover:text-red-400 transition-colors shrink-0 mt-0.5"
-            title="Delete poll — discards all votes, no results sent"
-          >
-            ✕
-          </button>
-        )}
-      </div>
-      <div className="space-y-1.5">
-        {poll.options.map((opt, i) => {
-          const count = tallies[i]
-          const pct = totalVotes > 0 ? Math.round((count / totalVotes) * 100) : 0
-          const isMine = myVote?.optionIdx === i
-          const isWinner = !isOpen && count === maxTally && totalVotes > 0
-          return (
-            <button key={i} onClick={() => isOpen && onVote(i)} disabled={!isOpen}
-              className={`w-full text-left rounded-lg border px-3 py-1.5 text-sm relative overflow-hidden transition-colors ${
-                isMine
-                  ? 'border-emerald-500/60 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
-                  : isWinner
-                  ? 'border-emerald-400/40 bg-emerald-400/10 text-emerald-700 dark:text-emerald-300'
-                  : 'border-slate-300 dark:border-slate-700/60 bg-white dark:bg-slate-900/60 text-slate-700 dark:text-slate-300 hover:border-slate-400 dark:hover:border-slate-600'
-              } ${isOpen ? 'cursor-pointer' : 'cursor-default'}`}>
-              <div className={`absolute inset-y-0 left-0 opacity-20 rounded-l-lg ${isMine ? 'bg-emerald-400' : isWinner ? 'bg-emerald-400' : 'bg-slate-400 dark:bg-slate-500'}`}
-                style={{ width: `${pct}%` }} />
-              <div className="relative flex justify-between items-center">
-                <span className="flex items-center gap-1.5">{isMine && <span className="text-emerald-500 dark:text-emerald-400 text-xs">✓</span>}{opt}</span>
-                <span className="text-xs text-slate-500 dark:text-slate-600 shrink-0">{count}{pct > 0 ? ` (${pct}%)` : ''}</span>
-              </div>
-            </button>
-          )
-        })}
-      </div>
-      {poll.votes.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1">
-          {poll.votes.map(v => (
-            <span key={v.voterName} className="text-xs bg-slate-100 dark:bg-slate-800/60 text-slate-500 dark:text-slate-500 px-1.5 py-0.5 rounded-full">
-              {v.voterName} → {poll.options[v.optionIdx] ?? '?'}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {isOpen && (
-        <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700/60">
-          {canClose ? (
-            <button
-              onClick={onClose}
-              className={`w-full py-2 rounded-lg text-sm font-semibold transition-colors ${
-                allVoted
-                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
-                  : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-700 dark:text-amber-400 border border-amber-500/40'
-              }`}
-              title={allVoted ? 'All users have voted' : 'Admin override — not everyone has voted yet'}
-            >
-              {allVoted ? 'Complete Poll' : '⚠ Force Complete (override)'}
-            </button>
-          ) : (
-            <div className="flex items-center justify-between text-xs text-slate-400 dark:text-slate-600">
-              <span>Waiting for votes…</span>
-              <span className="font-medium" title={`Waiting on: ${waitingOn.join(', ')}`}>
-                {totalVotes}/{onlineUsers.length} voted
-              </span>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+  </div>
   )
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function AgentPage({ project }: { project: ProjectInfo }) {
+  const { toggle: toggleNav } = useMobileMenu()
+  const [docSidebarOpen, setDocSidebarOpen] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= 1024 : true
+  )
   const [mounted, setMounted] = useState(false)
   const [username, setUsername] = useState<string | null>(null)
   const [authLoaded, setAuthLoaded] = useState(false)
-  const [isAdmin, setIsAdmin] = useState(false)
   const [documents, setDocuments] = useState<ProjectDocument[]>([])
-  const [polls, setPolls] = useState<Poll[]>([])
-  const [onlineUsers, setOnlineUsers] = useState<string[]>([])
   const [toast, setToast] = useState<string | null>(null)
   const [reloading, setReloading] = useState(false)
   const [view, setView] = useState<MainView>({ type: 'console' })
   const [pendingTasks, setPendingTasks] = useState(0)
   const [unvotedPolls, setUnvotedPolls] = useState(0)
+  const [clockTime, setClockTime] = useState('')
+
+  useEffect(() => {
+    const tick = () => {
+      const now = new Date()
+      setClockTime(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }))
+    }
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [])
 
   // Content lists
   const [chapters, setChapters] = useState<Chapter[]>([])
@@ -1194,7 +1068,6 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
   useEffect(() => {
     setMounted(true)
     fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(d => {
-      if (d?.role === 'admin') setIsAdmin(true)
       if (d?.username) {
         setUsername(d.username)
         localStorage.setItem('dan-username', d.username)
@@ -1206,11 +1079,6 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
   const fetchDocuments = useCallback(async () => {
     const res = await fetch(`/api/projects/${project.slug}/documents`)
     if (res.ok) setDocuments(await res.json())
-  }, [project.slug])
-
-  const fetchPolls = useCallback(async () => {
-    const res = await fetch(`/api/projects/${project.slug}/polls`)
-    if (res.ok) setPolls(await res.json())
   }, [project.slug])
 
   const fetchChapters = useCallback(async () => {
@@ -1228,23 +1096,12 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
     if (res.ok) { setWorldEntries(await res.json()); setWorldLoaded(true) }
   }, [project.slug])
 
-  const postMessage = useCallback(async (content: string) => {
-    await fetch(`/api/projects/${project.slug}/messages`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ author: username ?? 'System', content }),
-    })
-  }, [project.slug, username])
-
   useEffect(() => {
     fetchDocuments()
-    fetchPolls()
     fetchChapters()
     fetchCharacters()
     fetchWorld()
-    const interval = setInterval(fetchPolls, 10000)
-    return () => clearInterval(interval)
-  }, [fetchDocuments, fetchPolls, fetchChapters, fetchCharacters, fetchWorld])
+  }, [fetchDocuments, fetchChapters, fetchCharacters, fetchWorld])
 
   // Notification counts (pending tasks + unvoted polls)
   const fetchNotifications = useCallback(() => {
@@ -1259,19 +1116,6 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
     const interval = setInterval(fetchNotifications, 10000)
     return () => clearInterval(interval)
   }, [fetchNotifications])
-
-  // Track online users at the page level (for poll voting gate)
-  useEffect(() => {
-    const fetchPresence = () => {
-      fetch(`/api/projects/${project.slug}/presence`)
-        .then(r => r.json())
-        .then(data => setOnlineUsers(data.online ?? []))
-        .catch(() => {})
-    }
-    fetchPresence()
-    const interval = setInterval(fetchPresence, 5000)
-    return () => clearInterval(interval)
-  }, [project.slug])
 
   const showToast = (msg: string) => setToast(msg)
 
@@ -1330,107 +1174,121 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
   if (!mounted) return null
 
   return (
-    <div className="flex flex-col h-full bg-slate-950">
+    <div className="flex flex-1 min-h-0 bg-slate-950 overflow-hidden">
       {authLoaded && !username && <UsernameModal onSave={name => { localStorage.setItem('dan-username', name); setUsername(name) }} />}
       {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}
 
+      {/* Main area (header + content) — pushed left on mobile when doc sidebar opens */}
+      <div className={`flex flex-col flex-1 min-h-0 overflow-hidden transition-transform duration-200 ease-in-out ${docSidebarOpen ? '-translate-x-64 lg:translate-x-0' : 'translate-x-0'}`}>
+
       {/* Header */}
-      <div className="px-4 py-3 border-b border-slate-800/60 flex items-center gap-4 shrink-0">
-        <div className="flex-1 min-w-0">
-          <h1 className="text-sm font-semibold text-slate-200 truncate">{project.name}</h1>
-          <p className="text-xs text-slate-600">
-            Control Room
-            {username && <span className="ml-2 text-emerald-500 font-medium">— {username}</span>}
-          </p>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <ThemeToggle className="mr-2" />
+      <div className="relative z-50 px-4 h-16 border-b border-slate-800/60 shrink-0 flex items-center gap-3">
+        <button onClick={toggleNav} className="md:hidden w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors shrink-0 text-base">☰</button>
+        <h1 className="text-sm font-semibold text-slate-200 truncate">{project.name}</h1>
+        {username && <span className="text-xs text-slate-600 hidden sm:inline">— {username}</span>}
+        {clockTime && (() => {
+          const is420 = /^(0?4|16):20/.test(clockTime)
+          return (
+            <div className={`hidden sm:block px-3 py-1 rounded-lg border font-mono text-sm tabular-nums tracking-widest transition-all duration-700 ${
+              is420
+                ? 'border-emerald-500/60 bg-emerald-500/10 text-emerald-400 shadow-[0_0_12px_2px_rgba(16,185,129,0.25)]'
+                : 'border-slate-700/60 bg-slate-900/60 text-slate-400'
+            }`}>{clockTime}</div>
+          )
+        })()}
+        <div className="ml-auto flex items-center gap-2 shrink-0">
           <button onClick={reloadContext} disabled={reloading}
-            className="px-3 py-1.5 border border-slate-700 rounded-lg text-xs font-medium text-slate-400 hover:border-slate-600 hover:text-slate-300 transition-colors disabled:opacity-40 whitespace-nowrap">
-            {reloading ? 'Reloading…' : '↺ Reload Context'}
+            className="w-8 h-8 sm:w-auto sm:h-auto sm:px-3 sm:py-1.5 flex items-center justify-center border border-slate-700 rounded-lg text-xs font-medium text-slate-400 hover:border-slate-600 hover:text-slate-300 transition-colors disabled:opacity-40">
+            ↺<span className="hidden sm:inline ml-1">{reloading ? 'Reloading…' : 'Reload Context'}</span>
           </button>
           {view.type !== 'console' && (
-            <button onClick={() => setView({ type: 'console' })}
-              className="px-3 py-1.5 border border-slate-700 rounded-lg text-xs font-medium text-slate-400 hover:border-slate-600 hover:text-slate-300 transition-colors whitespace-nowrap">
-              ← Console
+            <button onClick={() => { setView({ type: 'console' }); setDocSidebarOpen(true) }}
+              className="w-8 h-8 sm:w-auto sm:h-auto sm:px-3 sm:py-1.5 flex items-center justify-center border border-slate-700 rounded-lg text-xs font-medium text-slate-400 hover:border-slate-600 hover:text-slate-300 transition-colors">
+              ←<span className="hidden sm:inline ml-1">Console</span>
             </button>
           )}
+          <button onClick={() => setDocSidebarOpen(v => !v)}
+            className={`w-8 h-8 flex items-center justify-center rounded-lg border transition-colors text-base ${docSidebarOpen ? 'border-emerald-500/40 text-emerald-400 bg-emerald-500/10' : 'border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600'}`}
+            title="Toggle documents">
+            📄
+          </button>
         </div>
       </div>
 
       {/* Body */}
-      <div className="flex flex-1 overflow-hidden">
-        <div className="flex flex-col flex-1 overflow-hidden">
-          {view.type === 'document' && selectedDoc && (
-            <DocEditor key={selectedDoc.key} doc={selectedDoc} projectSlug={project.slug}
-              onSaved={updated => { setDocuments(prev => prev.map(d => d.key === updated.key ? updated : d)); showToast(`"${updated.title}" saved.`) }}
-              onBack={() => setView({ type: 'console' })} />
-          )}
-          {view.type === 'chapter' && selectedChapter && (
-            <ChapterEditor key={selectedChapter.id} chapter={selectedChapter} username={username ?? 'Anonymous'}
-              onSaved={updated => { setChapters(prev => prev.map(c => c.id === updated.id ? updated : c)); showToast('Chapter saved.') }}
-              onBack={() => setView({ type: 'console' })} />
-          )}
-          {view.type === 'character' && selectedCharacter && (
-            <CharacterEditor key={selectedCharacter.id} character={selectedCharacter}
-              onSaved={updated => { setCharacters(prev => prev.map(c => c.id === updated.id ? updated : c)); showToast('Character saved.') }}
-              onBack={() => setView({ type: 'console' })} />
-          )}
-          {view.type === 'world' && selectedWorld && (
-            <WorldEntryEditor key={selectedWorld.id} entry={selectedWorld}
-              onSaved={updated => { setWorldEntries(prev => prev.map(w => w.id === updated.id ? updated : w)); showToast('Entry saved.') }}
-              onBack={() => setView({ type: 'console' })} />
-          )}
-          {view.type === 'console' && (
-            <>
-              <ChatPanel
-                projectSlug={project.slug}
-                username={username ?? 'Anonymous'}
-                onDocumentUpdated={fetchDocuments}
-                onChapterUpdated={fetchChapters}
-                onPollCreated={(poll) => {
-                  if (poll) setPolls(prev => [...prev, poll])
-                  fetchPolls()
-                  fetchNotifications()
-                }}
-                onTaskAssigned={() => {
-                  fetchNotifications()
-                }}
-              />
-              {/* Pending counters */}
-              <div className="shrink-0 px-3 py-2 border-t border-slate-800/60 flex gap-2">
-                <Link href={`/projects/${project.slug}/polls`}
-                  className="flex-1 flex items-center justify-between px-3 py-2 rounded-lg border border-slate-800/60 bg-slate-900/40 hover:border-slate-700 hover:bg-slate-900/60 transition-colors group">
-                  <div className="flex items-center gap-2">
-                    <span className="text-slate-500 group-hover:text-slate-400 transition-colors">◎</span>
-                    <span className="text-xs text-slate-500 group-hover:text-slate-400 transition-colors">Polls</span>
-                  </div>
-                  <span className={`text-sm font-semibold tabular-nums ${unvotedPolls > 0 ? 'text-amber-400' : 'text-slate-600'}`}>
-                    {unvotedPolls > 0 ? `${unvotedPolls} pending` : '—'}
-                  </span>
-                </Link>
-                <Link href={`/projects/${project.slug}/tasks`}
-                  className="flex-1 flex items-center justify-between px-3 py-2 rounded-lg border border-slate-800/60 bg-slate-900/40 hover:border-slate-700 hover:bg-slate-900/60 transition-colors group">
-                  <div className="flex items-center gap-2">
-                    <span className="text-slate-500 group-hover:text-slate-400 transition-colors">✓</span>
-                    <span className="text-xs text-slate-500 group-hover:text-slate-400 transition-colors">Tasks</span>
-                  </div>
-                  <span className={`text-sm font-semibold tabular-nums ${pendingTasks > 0 ? 'text-amber-400' : 'text-slate-600'}`}>
-                    {pendingTasks > 0 ? `${pendingTasks} pending` : '—'}
-                  </span>
-                </Link>
-              </div>
-            </>
-          )}
-        </div>
+      <div className="flex flex-col flex-1 overflow-hidden">
+        {view.type === 'document' && selectedDoc && (
+          <DocEditor key={selectedDoc.key} doc={selectedDoc} projectSlug={project.slug}
+            onSaved={updated => { setDocuments(prev => prev.map(d => d.key === updated.key ? updated : d)); showToast(`"${updated.title}" saved.`) }}
+            onBack={() => { setView({ type: 'console' }); if (window.innerWidth >= 1024) setDocSidebarOpen(true) }} />
+        )}
+        {view.type === 'chapter' && selectedChapter && (
+          <ChapterEditor key={selectedChapter.id} chapter={selectedChapter} username={username ?? 'Anonymous'}
+            onSaved={updated => { setChapters(prev => prev.map(c => c.id === updated.id ? updated : c)); showToast('Chapter saved.') }}
+            onBack={() => { setView({ type: 'console' }); if (window.innerWidth >= 1024) setDocSidebarOpen(true) }} />
+        )}
+        {view.type === 'character' && selectedCharacter && (
+          <CharacterEditor key={selectedCharacter.id} character={selectedCharacter}
+            onSaved={updated => { setCharacters(prev => prev.map(c => c.id === updated.id ? updated : c)); showToast('Character saved.') }}
+            onBack={() => { setView({ type: 'console' }); if (window.innerWidth >= 1024) setDocSidebarOpen(true) }} />
+        )}
+        {view.type === 'world' && selectedWorld && (
+          <WorldEntryEditor key={selectedWorld.id} entry={selectedWorld}
+            onSaved={updated => { setWorldEntries(prev => prev.map(w => w.id === updated.id ? updated : w)); showToast('Entry saved.') }}
+            onBack={() => { setView({ type: 'console' }); if (window.innerWidth >= 1024) setDocSidebarOpen(true) }} />
+        )}
+        {view.type === 'console' && (
+          <>
+            <ChatPanel
+              projectSlug={project.slug}
+              username={username ?? 'Anonymous'}
+              onDocumentUpdated={fetchDocuments}
+              onChapterUpdated={fetchChapters}
+              onPollCreated={() => { fetchNotifications() }}
+              onTaskAssigned={() => { fetchNotifications() }}
+            />
+            {/* Pending counters */}
+            <div className="shrink-0 px-3 py-2 border-t border-slate-800/60 flex gap-2">
+              <Link href={`/projects/${project.slug}/polls`}
+                className="flex-1 flex items-center justify-between px-3 py-2 rounded-lg border border-slate-800/60 bg-slate-900/40 hover:border-slate-700 hover:bg-slate-900/60 transition-colors group">
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-500 group-hover:text-slate-400 transition-colors">◎</span>
+                  <span className="text-xs text-slate-500 group-hover:text-slate-400 transition-colors">Polls</span>
+                </div>
+                <span className={`text-sm font-semibold tabular-nums ${unvotedPolls === 0 ? 'text-slate-600' : unvotedPolls >= 10 ? 'text-red-400' : 'text-amber-400'}`}>
+                  {unvotedPolls > 0 ? `${unvotedPolls} pending` : '—'}
+                </span>
+              </Link>
+              <Link href={`/projects/${project.slug}/tasks`}
+                className="flex-1 flex items-center justify-between px-3 py-2 rounded-lg border border-slate-800/60 bg-slate-900/40 hover:border-slate-700 hover:bg-slate-900/60 transition-colors group">
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-500 group-hover:text-slate-400 transition-colors">✓</span>
+                  <span className="text-xs text-slate-500 group-hover:text-slate-400 transition-colors">Tasks</span>
+                </div>
+                <span className={`text-sm font-semibold tabular-nums ${pendingTasks === 0 ? 'text-slate-600' : pendingTasks >= 10 ? 'text-red-400' : 'text-amber-400'}`}>
+                  {pendingTasks > 0 ? `${pendingTasks} pending` : '—'}
+                </span>
+              </Link>
+            </div>
+          </>
+        )}
+      </div>
 
+      </div>{/* end translated wrapper */}
+
+      {/* Doc sidebar — sibling of translated wrapper, slides in from right */}
+      <div className={`
+        fixed lg:static inset-y-0 right-0 z-40 shrink-0 lg:h-full
+        transition-transform duration-200 ease-in-out
+        ${docSidebarOpen ? 'translate-x-0' : 'translate-x-full lg:hidden'}
+      `}>
         <Sidebar
           documents={documents}
           selectedView={view}
-          onSelectDoc={key => setView({ type: 'document', key })}
-          onSelectChapter={id => setView({ type: 'chapter', id })}
-          onSelectCharacter={id => setView({ type: 'character', id })}
-          onSelectWorld={id => setView({ type: 'world', id })}
+          onSelectDoc={key => { setView({ type: 'document', key }); setDocSidebarOpen(false) }}
+          onSelectChapter={id => { setView({ type: 'chapter', id }); setDocSidebarOpen(false) }}
+          onSelectCharacter={id => { setView({ type: 'character', id }); setDocSidebarOpen(false) }}
+          onSelectWorld={id => { setView({ type: 'world', id }); setDocSidebarOpen(false) }}
           chapters={chapters}
           characters={characters}
           worldEntries={worldEntries}

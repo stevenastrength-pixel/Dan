@@ -112,6 +112,7 @@ const PROJECT_TIPS = [
   'Daneel does not sleep. Daneel does not dream. Daneel does not judge chapter 3.',
   'A task unfinished is just a plot twist waiting to happen.',
   'The first rule of Poll Club: you do not talk about Poll Club.',
+  'On mobile? Flick up anywhere outside the chat to hide your browser bar.',
 ]
 
 function TipBar({ inProject }: { inProject: boolean }) {
@@ -211,8 +212,8 @@ export default function Sidebar() {
   }, [projectSlug])
 
   return (
-    <aside className="w-56 bg-slate-950 border-r border-slate-900 flex flex-col shrink-0">
-      <div className="px-4 py-3 border-b border-slate-900 flex items-center justify-between">
+    <aside className="w-56 h-full bg-slate-950 border-r border-slate-900 flex flex-col shrink-0">
+      <div className="px-4 h-16 border-b border-slate-900 flex items-center justify-between shrink-0">
         <Link href="/projects" className="hover:opacity-80 transition-opacity flex items-center gap-2">
           <DanIcon size={48} />
           <span className="flex flex-col leading-tight">
