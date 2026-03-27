@@ -721,11 +721,11 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
                 isDaneel
                   ? 'bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 rounded-2xl rounded-tl-none border-l-2 border-emerald-500'
                   : isMe
-                  ? 'bg-emerald-500 text-white rounded-2xl rounded-tr-none'
+                  ? 'bg-slate-600 text-slate-50 rounded-2xl rounded-tr-none'
                   : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-2xl rounded-tl-none'
               }`}>
                 {!isMe && (
-                  <p className={`text-xs mb-1 font-semibold ${isDaneel ? 'text-emerald-500 dark:text-emerald-400' : 'text-sky-600 dark:text-sky-400'}`}>
+                  <p className={`text-xs mb-1 font-semibold ${isDaneel ? 'text-emerald-500 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`}>
                     {msg.author}
                   </p>
                 )}
@@ -737,7 +737,7 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
 
         {thinking && (
           <div className="flex justify-start">
-            <div className="bg-white dark:bg-slate-900 border-l-2 border-emerald-500 rounded-2xl rounded-tl-none shadow-sm px-4 py-2.5 text-sm">
+            <div className="bg-white dark:bg-slate-900 border-l-2 border-emerald-500 rounded-2xl rounded-tl-none shadow-sm px-4 py-2.5 text-sm text-slate-800 dark:text-slate-100">
               <p className="text-emerald-500 dark:text-emerald-400 text-xs mb-1 font-semibold">Daneel</p>
               <span className="flex gap-1 items-center">
                 <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
