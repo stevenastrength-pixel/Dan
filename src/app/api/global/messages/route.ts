@@ -3,7 +3,8 @@ export const maxDuration = 60
 
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { streamAIChat } from '@/lib/ai'
+import { streamAIChat, streamOpenClaw, type OpenClawContext } from '@/lib/ai'
+import { getUserFromRequest } from '@/lib/auth'
 
 const DANEEL_PATTERN = /@daneel\b/i
 
@@ -63,6 +64,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const { author, content, imageUrl, fileName } = await request.json()
   if (!content?.trim() && !imageUrl) return NextResponse.json({ error: 'Empty message' }, { status: 400 })
+  const requestingUser = await getUserFromRequest(request)
 
   const message = await prisma.globalMessage.create({
     data: { role: 'user', author, content: content ?? '', imageUrl: imageUrl ?? null, fileName: fileName ?? null },
@@ -80,7 +82,16 @@ export async function POST(request: Request) {
     }).then(msgs => msgs.reverse()),
   ])
 
-  if (!settings?.aiApiKey) {
+  const provider = (settings.aiProvider ?? 'anthropic') as 'anthropic' | 'openai' | 'openclaw'
+
+  if (provider === 'openclaw' && !settings?.openClawBaseUrl?.trim()) {
+    const errMsg = await prisma.globalMessage.create({
+      data: { role: 'assistant', author: 'Daneel', content: 'OpenClaw base URL is not configured. Go to Settings.' },
+    })
+    return NextResponse.json({ message, aiMessage: errMsg })
+  }
+
+  if (provider !== 'openclaw' && !settings?.aiApiKey) {
     const errMsg = await prisma.globalMessage.create({
       data: { role: 'assistant', author: 'Daneel', content: 'No API key configured. Go to Settings to add one.' },
     })
@@ -88,6 +99,14 @@ export async function POST(request: Request) {
   }
 
   const systemPrompt = buildSystemPrompt()
+  const openClawContext: OpenClawContext = {
+    project: { id: 0, slug: 'global-chat', name: 'Global Chat' },
+    documents: [],
+    characters: [],
+    worldEntries: [],
+    styleGuide: '',
+    sessionKey: requestingUser?.openClawSessionKey,
+  }
 
   // Build conversation history excluding the just-saved message (we pass content directly)
   const history = recentMessages
@@ -97,14 +116,24 @@ export async function POST(request: Request) {
 
   let aiText = ''
   try {
-    const provider = (settings.aiProvider ?? 'anthropic') as 'anthropic' | 'openai'
-    for await (const chunk of streamAIChat({
-      messages: history,
-      systemPrompt,
-      provider,
-      apiKey: settings.aiApiKey,
-      model: settings.aiModel?.trim() || undefined,
-    })) {
+    const generator = provider === 'openclaw'
+      ? streamOpenClaw({
+          messages: history,
+          systemPrompt,
+          openClawBaseUrl: settings!.openClawBaseUrl,
+          openClawApiKey: settings!.openClawApiKey || undefined,
+          openClawAgentId: settings!.openClawAgentId || undefined,
+          context: openClawContext,
+        })
+      : streamAIChat({
+          messages: history,
+          systemPrompt,
+          provider,
+          apiKey: settings!.aiApiKey,
+          model: settings!.aiModel?.trim() || undefined,
+        })
+
+    for await (const chunk of generator) {
       aiText += chunk
     }
   } catch (err) {

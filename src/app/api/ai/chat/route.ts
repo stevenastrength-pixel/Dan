@@ -1,10 +1,12 @@
 export const dynamic = 'force-dynamic'
 
 import { prisma } from '@/lib/prisma'
-import { streamAIChat, buildSystemPrompt } from '@/lib/ai'
+import { streamAIChat, streamOpenClaw, buildSystemPrompt, type OpenClawContext } from '@/lib/ai'
+import { getUserFromRequest } from '@/lib/auth'
 
 export async function POST(request: Request) {
   const { messages, chapterId } = await request.json()
+  const requestingUser = await getUserFromRequest(request)
 
   // Load settings and context from the database
   const [settings, characters, worldEntries] = await Promise.all([
@@ -13,7 +15,16 @@ export async function POST(request: Request) {
     prisma.worldEntry.findMany({ orderBy: { name: 'asc' } }),
   ])
 
-  if (!settings?.aiApiKey) {
+  const provider = (settings?.aiProvider ?? 'anthropic') as 'anthropic' | 'openai' | 'openclaw'
+
+  if (provider === 'openclaw') {
+    if (!settings?.openClawBaseUrl?.trim()) {
+      return new Response(
+        JSON.stringify({ error: 'OpenClaw provider is selected but openClawBaseUrl is not configured. Please set a Base URL in Settings.' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+  } else if (!settings?.aiApiKey) {
     return new Response(
       JSON.stringify({ error: 'No API key configured. Go to Settings to add one.' }),
       { status: 400, headers: { 'Content-Type': 'application/json' } }
@@ -36,18 +47,45 @@ export async function POST(request: Request) {
     chapter,
   })
 
+  const openClawContext: OpenClawContext = {
+    project: { id: 0, slug: 'chapter-editor', name: 'Chapter Editor' },
+    documents: [],
+    characters: characters.map((c) => ({
+      name: c.name,
+      role: c.role,
+      description: c.description,
+      notes: c.notes,
+    })),
+    worldEntries: worldEntries.map((w) => ({
+      name: w.name,
+      type: w.type,
+      description: w.description,
+    })),
+    styleGuide: settings.styleGuide,
+    sessionKey: requestingUser?.openClawSessionKey,
+  }
+
   const encoder = new TextEncoder()
 
   const readable = new ReadableStream({
     async start(controller) {
       try {
-        const generator = streamAIChat({
-          messages,
-          systemPrompt,
-          provider: settings.aiProvider as 'anthropic' | 'openai',
-          apiKey: settings.aiApiKey,
-          model: settings.aiModel?.trim() || undefined,
-        })
+        const generator = provider === 'openclaw'
+          ? streamOpenClaw({
+              messages,
+              systemPrompt,
+              openClawBaseUrl: settings!.openClawBaseUrl,
+              openClawApiKey: settings!.openClawApiKey || undefined,
+              openClawAgentId: settings!.openClawAgentId || undefined,
+              context: openClawContext,
+            })
+          : streamAIChat({
+              messages,
+              systemPrompt,
+              provider,
+              apiKey: settings!.aiApiKey,
+              model: settings!.aiModel?.trim() || undefined,
+            })
 
         for await (const text of generator) {
           controller.enqueue(
