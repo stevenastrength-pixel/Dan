@@ -773,6 +773,7 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
             <div
               className="fixed z-50 bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-100 dark:border-slate-700 py-1.5 w-48"
               style={{ left: x, top: y }}
+              onMouseDown={e => e.stopPropagation()}
               onClick={e => e.stopPropagation()}
             >
               {[
