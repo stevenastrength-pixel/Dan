@@ -113,7 +113,7 @@ export async function POST(
     ? characters.map(c => {
         let traits: string[] = []
         try { traits = JSON.parse(c.traits) } catch {}
-        return `- **${c.name}** (${c.role})${c.description ? `: ${c.description}` : ''}${traits.length > 0 ? ` | Traits: ${traits.join(', ')}` : ''}`
+        return `- **${c.name}** (id: \`${c.id}\`, role: ${c.role})${c.description ? `: ${c.description}` : ''}${traits.length > 0 ? ` | Traits: ${traits.join(', ')}` : ''}`
       }).join('\n')
     : 'No characters defined yet.'
 
@@ -155,7 +155,7 @@ Chapter IDs are listed in the Chapters section below — use them directly, do N
 Use create_chapter to create a new chapter. Use get_chapter to read a chapter before editing. Use patch_chapter for targeted edits. Use update_chapter only for full rewrites.
 
 ## IMPORTANT: Managing characters
-Character IDs are listed in the Characters section below. Use create_character to add someone new to the project database. Use get_character before updating an existing character so you preserve important details. Use update_character to replace the stored fields for a character when asked to sync the database with the Story Bible or other canon documents. Use delete_character only when the user clearly asks to remove a character record from the database.
+Character IDs are listed in the Characters section below. Use find_character_by_name if you need to resolve a name to an id or confirm whether a character already exists. Use create_character to add someone new to the project database. Use get_character before updating an existing character so you preserve important details. Use update_character to replace the stored fields for a character when asked to sync the database with the Story Bible or other canon documents. Use delete_character only when the user clearly asks to remove a character record from the database.
 
 ## CRITICAL: Creating polls
 When asked to create a poll, you MUST call the create_poll tool — do NOT write poll details in text without calling the tool. Writing about a poll in prose has no effect; only the tool call actually creates one. Call the tool first, then briefly confirm what you created.
@@ -314,6 +314,17 @@ ${worldList}`
           id: { type: 'string', description: 'The character id from the Characters list in your context.' },
         },
         required: ['id'],
+      },
+    },
+    {
+      name: 'find_character_by_name',
+      description: 'Look up one or more characters in this project by name. Use this before updating or deleting when you only know the character name.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          name: { type: 'string', description: 'Full or partial character name to search for.' },
+        },
+        required: ['name'],
       },
     },
     {
@@ -539,6 +550,23 @@ ${worldList}`
           try { return JSON.parse(character.traits) } catch { return [] }
         })(),
       }, null, 2)}`
+    }
+    if (name === 'find_character_by_name') {
+      const { name } = input as { name: string }
+      if (!name?.trim()) return 'Error: name is required.'
+      const matches = await prisma.character.findMany({
+        where: {
+          projectId: project.id,
+          name: { contains: name.trim() },
+        },
+        orderBy: { name: 'asc' },
+      })
+      if (matches.length === 0) return `No characters found matching "${name.trim()}".`
+      return matches.map((character) => {
+        let traits: string[] = []
+        try { traits = JSON.parse(character.traits) } catch {}
+        return `- ${character.name} (id: ${character.id}, role: ${character.role})${character.description ? ` — ${character.description}` : ''}${traits.length > 0 ? ` | Traits: ${traits.join(', ')}` : ''}`
+      }).join('\n')
     }
     if (name === 'update_character') {
       const { id, name, role, description, notes, traits, summary } = input as {
