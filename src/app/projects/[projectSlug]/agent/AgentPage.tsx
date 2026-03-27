@@ -544,7 +544,7 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
       return
     }
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, thinking])
+  }, [messages, thinking, pendingImage])
 
   // Initial message load
   useEffect(() => {

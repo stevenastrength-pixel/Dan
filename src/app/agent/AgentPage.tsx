@@ -112,7 +112,7 @@ export default function GlobalChatPage() {
       return
     }
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, thinking])
+  }, [messages, thinking, pendingImage])
 
   // Initial load
   useEffect(() => {
