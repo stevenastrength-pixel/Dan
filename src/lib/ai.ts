@@ -538,8 +538,18 @@ export async function callOpenClawWithTools(params: {
 
     const toolResults: OpenClawFunctionCallOutputItem[] = []
     for (const tc of requestedToolCalls) {
+      console.log('[openclaw] function_call', truncateForLog(safeStringify({
+        id: tc.id,
+        name: tc.name,
+        input: tc.input,
+      })))
       const result = await onToolCall(tc.name, tc.input)
       toolCalls.push({ name: tc.name, input: tc.input, result })
+      console.log('[openclaw] function_result', truncateForLog(safeStringify({
+        id: tc.id,
+        name: tc.name,
+        result,
+      })))
       toolResults.push({
         type: 'function_call_output',
         call_id: tc.id,

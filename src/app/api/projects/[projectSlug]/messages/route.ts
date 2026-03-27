@@ -487,6 +487,7 @@ ${worldList}`
     }
     if (name === 'create_poll') {
       const { question, options } = input as { question: string; options: string[] }
+      console.log('[create_poll] called with:', { question, options, projectId: project.id })
       if (!question?.trim()) return 'Error: question is required.'
       const valid = (options ?? []).filter((o: string) => o?.trim())
       if (valid.length < 2) return 'Error: at least 2 options are required.'
@@ -500,6 +501,7 @@ ${worldList}`
         },
         include: { votes: true },
       })
+      console.log('[create_poll] created:', newPoll.id)
       createdPoll = { ...newPoll, options: JSON.parse(newPoll.options) }
       return `Poll created: "${question.trim()}" with options: ${valid.join(', ')}`
     }
