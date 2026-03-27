@@ -155,7 +155,7 @@ Chapter IDs are listed in the Chapters section below — use them directly, do N
 Use create_chapter to create a new chapter. Use get_chapter to read a chapter before editing. Use patch_chapter for targeted edits. Use update_chapter only for full rewrites.
 
 ## IMPORTANT: Managing characters
-Character IDs are listed in the Characters section below. Use create_character to add someone new to the project database. Use get_character before updating an existing character so you preserve important details. Use update_character to replace the stored fields for a character when asked to sync the database with the Story Bible or other canon documents.
+Character IDs are listed in the Characters section below. Use create_character to add someone new to the project database. Use get_character before updating an existing character so you preserve important details. Use update_character to replace the stored fields for a character when asked to sync the database with the Story Bible or other canon documents. Use delete_character only when the user clearly asks to remove a character record from the database.
 
 ## CRITICAL: Creating polls
 When asked to create a poll, you MUST call the create_poll tool — do NOT write poll details in text without calling the tool. Writing about a poll in prose has no effect; only the tool call actually creates one. Call the tool first, then briefly confirm what you created.
@@ -335,6 +335,18 @@ ${worldList}`
           summary: { type: 'string', description: 'One or two sentences describing what changed.' },
         },
         required: ['id', 'name', 'role', 'description', 'notes', 'traits', 'summary'],
+      },
+    },
+    {
+      name: 'delete_character',
+      description: 'Delete a character from the project database. Only use this when the user explicitly asks to remove the record.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          id: { type: 'string', description: 'The character id.' },
+          summary: { type: 'string', description: 'One sentence describing why the character was removed.' },
+        },
+        required: ['id', 'summary'],
       },
     },
     {
@@ -552,6 +564,13 @@ ${worldList}`
       })
       return `Updated character "${name?.trim() || character.name}". ${summary}`
     }
+    if (name === 'delete_character') {
+      const { id, summary } = input as { id: string; summary: string }
+      const character = await prisma.character.findUnique({ where: { id } })
+      if (!character || character.projectId !== project.id) return `Error: character "${id}" not found in this project.`
+      await prisma.character.delete({ where: { id } })
+      return `Deleted character "${character.name}". ${summary}`
+    }
     if (name === 'get_chapter') {
       const { id } = input as { id: string }
       const chapter = await prisma.chapter.findUnique({ where: { id } })
@@ -675,7 +694,7 @@ ${worldList}`
 
     pollCreated = toolCallsMade.some(tc => tc.name === 'create_poll')
     const editLog = toolCallsMade
-      .filter(tc => ['update_document', 'patch_document', 'create_chapter', 'create_character', 'update_character', 'update_chapter', 'patch_chapter', 'create_poll', 'assign_task'].includes(tc.name))
+      .filter(tc => ['update_document', 'patch_document', 'create_chapter', 'create_character', 'update_character', 'delete_character', 'update_chapter', 'patch_chapter', 'create_poll', 'assign_task'].includes(tc.name))
       .map(tc => {
         if (tc.name === 'create_poll') {
           const { question, options } = tc.input as { question: string; options: string[] }
@@ -693,6 +712,10 @@ ${worldList}`
         }
         if (tc.name === 'update_character') {
           return `👤 Updated character **"${(tc.input as { name: string }).name}"**: ${(tc.input as { summary: string }).summary}`
+        }
+        if (tc.name === 'delete_character') {
+          const deleted = characters.find(c => c.id === (tc.input as { id: string }).id)
+          return `👤 Removed character **"${deleted?.name ?? (tc.input as { id: string }).id}"**: ${(tc.input as { summary: string }).summary}`
         }
         if (tc.name === 'update_chapter' || tc.name === 'patch_chapter') {
           const chapter = chapters.find(c => c.id === (tc.input as { id: string }).id)
