@@ -219,7 +219,7 @@ export default function GlobalChatPage() {
       if (e.key === 'Tab' || e.key === 'Enter') { e.preventDefault(); selectMention(mentionCandidates[mentionIndex]); return }
       if (e.key === 'Escape') { setMentionQuery(null); return }
     }
-    if (e.key === 'Enter' && !e.shiftKey) send()
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
   }
 
   const attachFile = (file: File) => {
