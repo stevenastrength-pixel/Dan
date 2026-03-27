@@ -9,6 +9,10 @@ function normalizeOpenClawResponsesUrl(baseUrl: string): string {
   return url.toString()
 }
 
+function isMaskedSecret(value: string): boolean {
+  return value.startsWith('••••')
+}
+
 function extractErrorMessage(body: unknown): string {
   if (!body) return ''
   if (typeof body === 'string') return body
@@ -66,7 +70,9 @@ export async function POST(request: Request) {
   }
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (apiKey?.trim()) headers['Authorization'] = `Bearer ${apiKey.trim()}`
+  if (apiKey?.trim() && !isMaskedSecret(apiKey.trim())) {
+    headers['Authorization'] = `Bearer ${apiKey.trim()}`
+  }
   if (agentId?.trim()) headers['x-openclaw-agent-id'] = agentId.trim()
 
   const payload = {
