@@ -1,13 +1,13 @@
 # DAN
 
-DAN, short for Distributed Authoring Nexus, is a web application for collaborative novel development with built-in AI assistance. It gives a writing team a shared workspace for project chat, chapters, canon documents, characters, worldbuilding, polls, and task assignment, while letting the AI backend be swapped between OpenAI, Anthropic, and an OpenClaw-compatible endpoint.
+DAN, short for Distributed Authoring Nexus, is a web application for collaborative novel development with built-in AI assistance. It gives a writing team a shared workspace for project chat, chapters, canon documents, characters, worldbuilding, polls, and task assignment, while letting the AI backend be swapped between OpenAI, Anthropic, and an OpenClaw Gateway endpoint.
 
 The current implementation is a Next.js 14 app with Prisma and SQLite. Authentication is built in, projects are multi-tenant, and project chat can trigger an AI agent named `Daneel` that can read project context and perform structured tool actions such as editing documents, creating chapters, opening polls, and assigning tasks.
 
 ## Status
 
 - OpenAI and Anthropic are the primary working providers.
-- OpenClaw support is present but still experimental. DAN can talk to an OpenClaw-compatible synchronous HTTP endpoint, and it includes a built-in bridge route for local testing, but the full OpenClaw integration is not yet behaving as a finished production path.
+- OpenClaw support is present through the official OpenClaw Gateway `POST /v1/responses` API.
 - There are no automated tests in the repository yet.
 
 ## Core Capabilities
@@ -115,16 +115,20 @@ This is the key mechanism that makes the AI more than a chatbot. Daneel can make
 
 ## OpenClaw Notes
 
-OpenClaw support exists in two forms:
+OpenClaw support now targets the official OpenClaw Gateway `POST /v1/responses` API.
 
-1. DAN can send requests to an external OpenClaw-compatible HTTP endpoint.
-2. DAN includes a built-in bridge route at `/api/openclaw-bridge` that accepts the DAN/OpenClaw payload format and then calls OpenAI or Anthropic directly to return a synchronous `{ "reply": "..." }` response.
+DAN can be configured to talk to:
+
+1. an OpenClaw Gateway root URL, such as `http://localhost:18789`
+2. a full OpenClaw responses URL, such as `http://localhost:18789/v1/responses`
+
+There is also a legacy compatibility route at `/api/openclaw-bridge`, but it is not a real OpenClaw agent integration. It simply calls Anthropic or OpenAI directly using DAN's configured key.
 
 Important caveats:
 
-- OpenClaw support is not fully finished.
-- The built-in bridge is mainly a compatibility shim, not a full native OpenClaw runtime.
-- The connection test route currently probes `baseUrl + /dan-agent`, so verify your adapter matches that expectation or update the route when you finish the OpenClaw work.
+- The legacy built-in bridge remains in the repo for backwards compatibility.
+- Tool-use with OpenClaw depends on the Gateway `responses` endpoint being enabled and reachable.
+- Provider credentials for the Gateway are still stored in the app database today.
 
 For more detail, see:
 
@@ -306,7 +310,7 @@ From [`package.json`](/Users/oberon/Projects/coding/other/Dan/package.json):
 
 ## Known Gaps and Follow-Up Work
 
-- OpenClaw integration needs more work before it should be considered complete.
+- OpenClaw integration should still be exercised against a real Gateway container before relying on it in production.
 - Secrets for providers are stored in the database in plaintext today.
 - There are no automated tests, lint scripts, or CI configuration in the repository.
 - The Prisma seed script currently does not create sample data.
@@ -316,8 +320,7 @@ From [`package.json`](/Users/oberon/Projects/coding/other/Dan/package.json):
 
 If you are picking this project up, the most useful near-term improvements would be:
 
-1. Finish and harden the OpenClaw integration path.
+1. Add integration tests against a real OpenClaw Gateway container.
 2. Add automated tests around auth, project creation, tool execution, and provider selection.
 3. Add secret-management improvements for stored provider credentials.
 4. Add migrations and deployment guidance for non-SQLite production environments if the project needs to scale.
-

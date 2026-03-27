@@ -1,138 +1,94 @@
 # DAN × OpenClaw Setup
 
----
+This project now targets the official OpenClaw Gateway HTTP API instead of DAN's older custom `{ reply: string }` adapter contract.
 
-## Table of Contents
+## What to run
 
-- [What's Running](#whats-running)
-- [DAN Settings](#dan-settings)
-- [The Bridge Endpoint](#the-bridge-endpoint)
-- [Payload Reference](#payload-reference)
-- [Tool Loop](#tool-loop)
-- [Building a Custom Adapter](#building-a-custom-adapter)
+You should have two separate services:
 
----
+| Service | Example port | Purpose |
+|---|---:|---|
+| DAN | `3000` | Web UI and application server |
+| OpenClaw Gateway | `18789` | Agent runtime and HTTP API |
 
-## What's Running
+The intended deployment is exactly the use case we discussed: DAN in one container, OpenClaw in another, on the same machine or Docker network.
 
-| Process | Port | Handles |
-|---|---|---|
-| DAN (Next.js) | 3000 | Web UI |
-| OpenClaw Gateway | 18789 | Telegram |
+## Which OpenClaw API DAN uses
 
-These run independently. No cross-talk required.
+DAN now talks to the official OpenClaw Gateway `POST /v1/responses` endpoint.
 
----
+Official docs:
+
+- [OpenClaw OpenResponses API](https://docs.openclaw.ai/gateway/openresponses-http-api)
 
 ## DAN Settings
 
-`Settings → AI Provider → OpenClaw`
+Go to `Settings → AI Provider → OpenClaw` and set:
 
 | Field | Value |
 |---|---|
-| AI Provider | Anthropic or OpenAI |
-| API Key | LLM key |
-| Model | e.g. `claude-sonnet-4-6` — blank = default |
-| Provider | **OpenClaw** |
-| Server URL | Click **⚡ Use built-in bridge** |
-| Agent ID | Optional |
+| Server URL | OpenClaw Gateway base URL or full `/v1/responses` URL |
+| Agent ID | Optional. If set, DAN sends it as `x-openclaw-agent-id` |
+| API Key | Gateway bearer token, if auth is enabled |
 
-**⚡ Use built-in bridge** auto-fills Server URL with `http://localhost:3000/api/openclaw-bridge`.
+Examples:
 
----
+- `http://localhost:18789`
+- `http://localhost:18789/v1/responses`
+- `http://openclaw:18789` when both apps run in Docker on the same network
 
-## The Bridge Endpoint
+If you enter the base URL, DAN appends `/v1/responses` automatically.
 
-**File:** `src/app/api/openclaw-bridge/route.ts`
+## Request shape
 
-- Accepts DAN's payload format (see below)
-- Calls Anthropic or OpenAI directly using DAN's configured key
-- Returns `{ reply: string }` synchronously
-
----
-
-## Payload Reference
-
-DAN sends this to `openClawBaseUrl` on every message:
+DAN sends OpenResponses-style requests:
 
 ```json
 {
-  "agentId": "my-agent",
-  "sessionKey": "clx3k9m2p0000abc123",
-  "mode": "agent",
-  "project": {
-    "id": 1,
-    "slug": "my-novel",
-    "name": "My Novel"
-  },
-  "context": {
-    "documents":    [{ "key": "bible", "title": "Story Bible", "content": "..." }],
-    "characters":   [{ "name": "Elara", "role": "Protagonist", "description": "...", "notes": "..." }],
-    "worldEntries": [{ "name": "The Citadel", "type": "Location", "description": "..." }],
-    "styleGuide":   "..."
-  },
-  "messages": [
-    { "role": "system",    "content": "..." },
-    { "role": "user",      "content": "Write the opening of chapter 3" },
-    { "role": "assistant", "content": "..." }
+  "model": "openclaw",
+  "instructions": "system prompt with project context",
+  "input": [
+    { "type": "message", "role": "user", "content": "..." },
+    { "type": "message", "role": "assistant", "content": "..." }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "patch_chapter",
+        "description": "...",
+        "parameters": { "type": "object", "properties": {} }
+      }
+    }
   ]
 }
 ```
 
-**Headers:**
-```
+Headers used by DAN:
+
+```http
 Content-Type: application/json
 Authorization: Bearer <openClawApiKey>
+x-openclaw-agent-id: <openClawAgentId>
+x-openclaw-session-key: <stable-session-key>
 ```
 
-**Response:**
-```json
-{ "reply": "..." }
-```
+`x-openclaw-session-key` is sent for project tool-use flows so OpenClaw can continue a tool turn across requests.
 
----
+## Tool loop
 
-## Tool Loop
+For project chat with tools enabled:
 
-When the agent invokes tools (e.g. writing/editing a chapter), the exchange is multi-turn:
+1. DAN sends the initial `/v1/responses` request with function tools.
+2. OpenClaw may return one or more `function_call` output items.
+3. DAN executes those tools locally.
+4. DAN sends a follow-up `/v1/responses` request with `function_call_output` items.
+5. This repeats until OpenClaw returns assistant text.
 
-**1 — DAN sends initial payload** (same as above, plus `tools` array)
+## Legacy bridge
 
-**2 — Server responds with tool calls:**
-```json
-{
-  "toolCalls": [
-    { "id": "tc_1", "name": "patch_chapter", "input": { "chapterId": "...", "patch": "..." } }
-  ]
-}
-```
+The route `src/app/api/openclaw-bridge/route.ts` still exists, but it is now legacy compatibility code.
 
-**3 — DAN executes tools, sends results:**
-```json
-{
-  "toolResults": [
-    { "id": "tc_1", "result": "Chapter updated." }
-  ]
-}
-```
+It does **not** call a real OpenClaw agent. It calls Anthropic or OpenAI directly.
 
-Steps 2–3 repeat until the server sends `{ "reply": "..." }`.
-
----
-
-## Building a Custom Adapter
-
-To replace the built-in bridge with a real OpenClaw-side adapter:
-
-1. Expose an HTTP endpoint on your server
-2. Accept DAN's payload (see [Payload Reference](#payload-reference))
-3. Feed `messages`, `context`, and `sessionKey` into your OpenClaw agent
-4. Return `{ "reply": "..." }` synchronously — or `{ "toolCalls": [...] }` to invoke DAN's tools
-5. In DAN Settings → Server URL, replace the bridge URL with your endpoint
-
-The `sessionKey` value is a stable per-user `cuid`. Map it to an OpenClaw session key as:
-```
-agent:<agentId>:<sessionKey>
-```
-
-Everything else (`Authorization` header, `agentId`, full context) arrives exactly as shown above.
+Use it only if you deliberately need the older DAN-specific adapter behavior.

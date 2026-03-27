@@ -1,16 +1,16 @@
 export const dynamic = 'force-dynamic'
 
 /**
- * Built-in OpenClaw bridge.
+ * Legacy OpenClaw bridge.
  *
- * OpenClaw's standard /hooks/agent webhook is fire-and-forget (async, delivers to Telegram).
- * This route accepts DAN's existing OpenClaw payload format and calls the configured LLM
+ * This route preserves DAN's older custom adapter contract:
+ * it accepts DAN's legacy OpenClaw-shaped payload and then calls the configured LLM
  * directly, returning a synchronous { reply: string } response.
  *
- * Point openClawBaseUrl in Settings to:  http://<host>/api/openclaw-bridge
+ * DAN now integrates with the official OpenClaw Gateway /v1/responses API directly.
+ * Keep this route only for backwards compatibility with older setups.
  *
- * OpenClaw keeps handling Telegram on its own. DAN gets the same LLM/personality
- * via this bridge, giving you two interfaces (web + Telegram) to the same agent.
+ * If you point openClawBaseUrl here, you are NOT talking to a real OpenClaw agent.
  */
 
 import { NextResponse } from 'next/server'

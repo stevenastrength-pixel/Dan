@@ -25,6 +25,176 @@ export type ToolCall = {
   result: string
 }
 
+type OpenClawResponsesMessageItem = {
+  type: 'message'
+  role: 'system' | 'developer' | 'user' | 'assistant'
+  content: string
+}
+
+type OpenClawFunctionCallOutputItem = {
+  type: 'function_call_output'
+  call_id: string
+  output: string
+}
+
+type OpenClawInputItem = OpenClawResponsesMessageItem | OpenClawFunctionCallOutputItem
+
+type OpenClawResponsesRequest = {
+  model: string
+  instructions?: string
+  input: string | OpenClawInputItem[]
+  tools?: Array<{
+    type: 'function'
+    function: {
+      name: string
+      description: string
+      parameters: ToolDef['input_schema']
+    }
+  }>
+  max_output_tokens?: number
+}
+
+type OpenClawResponsesOutputItem = {
+  type?: string
+  role?: string
+  name?: string
+  arguments?: string
+  call_id?: string
+  content?: Array<{ type?: string; text?: string }> | string
+  text?: string
+}
+
+type OpenClawResponsesResponse = {
+  output?: OpenClawResponsesOutputItem[]
+  error?: { message?: string; type?: string } | string
+}
+
+function normalizeOpenClawResponsesUrl(baseUrl: string): string {
+  const url = new URL(baseUrl)
+  if (url.pathname.endsWith('/v1/responses')) return url.toString()
+  url.pathname = url.pathname.replace(/\/$/, '') + '/v1/responses'
+  return url.toString()
+}
+
+function buildOpenClawHeaders(params: {
+  openClawApiKey?: string
+  openClawAgentId?: string
+  sessionKey?: string
+}): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (params.openClawApiKey) headers.Authorization = `Bearer ${params.openClawApiKey}`
+  if (params.openClawAgentId) headers['x-openclaw-agent-id'] = params.openClawAgentId
+  if (params.sessionKey) headers['x-openclaw-session-key'] = params.sessionKey
+  return headers
+}
+
+function toOpenClawInputMessages(messages: Array<{ role: 'user' | 'assistant'; content: string }>): OpenClawResponsesMessageItem[] {
+  return messages.map((message) => ({
+    type: 'message',
+    role: message.role,
+    content: message.content,
+  }))
+}
+
+function parseOpenClawErrorBody(body: unknown): string {
+  if (!body) return ''
+  if (typeof body === 'string') return body
+  if (typeof body === 'object' && body !== null) {
+    const asRecord = body as Record<string, unknown>
+    const nested = asRecord.error
+    if (typeof nested === 'string') return nested
+    if (typeof nested === 'object' && nested !== null && typeof (nested as Record<string, unknown>).message === 'string') {
+      return (nested as Record<string, unknown>).message as string
+    }
+    if (typeof asRecord.message === 'string') return asRecord.message
+  }
+  return ''
+}
+
+function extractOpenClawText(data: OpenClawResponsesResponse): string {
+  const output = Array.isArray(data.output) ? data.output : []
+  const textParts: string[] = []
+
+  for (const item of output) {
+    if (item.type === 'message') {
+      if (typeof item.content === 'string') {
+        textParts.push(item.content)
+        continue
+      }
+      for (const part of item.content ?? []) {
+        if (part.type === 'output_text' && typeof part.text === 'string') {
+          textParts.push(part.text)
+        }
+      }
+      continue
+    }
+
+    if (item.type === 'output_text' && typeof item.text === 'string') {
+      textParts.push(item.text)
+    }
+  }
+
+  return textParts.join('')
+}
+
+function extractOpenClawFunctionCalls(data: OpenClawResponsesResponse): Array<{ id: string; name: string; input: Record<string, unknown> }> {
+  const output = Array.isArray(data.output) ? data.output : []
+  const toolCalls: Array<{ id: string; name: string; input: Record<string, unknown> }> = []
+
+  for (const item of output) {
+    if (item.type !== 'function_call' || !item.call_id || !item.name) continue
+    let input: Record<string, unknown> = {}
+    if (typeof item.arguments === 'string' && item.arguments.trim()) {
+      try {
+        input = JSON.parse(item.arguments)
+      } catch {}
+    }
+    toolCalls.push({ id: item.call_id, name: item.name, input })
+  }
+
+  return toolCalls
+}
+
+async function postOpenClawResponses(params: {
+  openClawBaseUrl: string
+  openClawApiKey?: string
+  openClawAgentId?: string
+  sessionKey?: string
+  body: OpenClawResponsesRequest
+}): Promise<OpenClawResponsesResponse> {
+  const url = normalizeOpenClawResponsesUrl(params.openClawBaseUrl)
+  const headers = buildOpenClawHeaders({
+    openClawApiKey: params.openClawApiKey,
+    openClawAgentId: params.openClawAgentId,
+    sessionKey: params.sessionKey,
+  })
+
+  let res: Response
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(params.body),
+    })
+  } catch (err) {
+    throw new Error(
+      `OpenClaw provider unreachable at ${url}: ${err instanceof Error ? err.message : String(err)}`
+    )
+  }
+
+  if (!res.ok) {
+    let detail = ''
+    try {
+      detail = parseOpenClawErrorBody(await res.json())
+    } catch {
+      detail = await res.text().catch(() => '')
+    }
+    throw new Error(`OpenClaw provider error: ${res.status}${detail ? ' — ' + detail : ''}`)
+  }
+
+  return await res.json()
+}
+
 // ─── Anthropic / OpenAI streaming (no tools) ─────────────────────────────────
 
 export async function* streamAIChat(params: {
@@ -92,53 +262,25 @@ export async function* streamOpenClaw(params: {
 }): AsyncGenerator<string> {
   const { messages, systemPrompt, openClawBaseUrl, openClawApiKey, openClawAgentId, context } = params
 
-  const url = openClawBaseUrl
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (openClawApiKey) headers['Authorization'] = `Bearer ${openClawApiKey}`
-
-  const payload = {
-    agentId: openClawAgentId || undefined,
-    sessionKey: context.sessionKey || undefined,
-    mode: 'agent',
-    project: context.project,
-    context: {
-      documents: context.documents,
-      characters: context.characters,
-      worldEntries: context.worldEntries,
-      styleGuide: context.styleGuide,
+  const data = await postOpenClawResponses({
+    openClawBaseUrl,
+    openClawApiKey,
+    openClawAgentId,
+    sessionKey: context.sessionKey,
+    body: {
+      model: 'openclaw',
+      instructions: systemPrompt,
+      input: toOpenClawInputMessages(messages),
+      max_output_tokens: 4096,
     },
-    messages: [
-      { role: 'system', content: systemPrompt },
-      ...messages,
-    ],
+  })
+
+  const text = extractOpenClawText(data)
+  if (!text) {
+    throw new Error('OpenClaw provider returned an unexpected response shape (expected assistant text output)')
   }
 
-  let res: Response
-  try {
-    res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(payload) })
-  } catch (err) {
-    throw new Error(
-      `OpenClaw provider unreachable at ${url}: ${err instanceof Error ? err.message : String(err)}`
-    )
-  }
-
-  if (!res.ok) {
-    let detail = ''
-    try {
-      const body = await res.json()
-      detail = body.error ?? body.message ?? ''
-    } catch {
-      detail = await res.text().catch(() => '')
-    }
-    throw new Error(`OpenClaw provider error: ${res.status}${detail ? ' — ' + detail : ''}`)
-  }
-
-  const data = await res.json()
-  if (typeof data.reply !== 'string') {
-    throw new Error('OpenClaw provider returned an unexpected response shape (expected { reply: string })')
-  }
-
-  yield data.reply
+  yield text
 }
 
 // ─── Anthropic agentic loop (with tools) ─────────────────────────────────────
@@ -302,74 +444,55 @@ export async function callOpenClawWithTools(params: {
     openClawAgentId, context, tools, onToolCall,
   } = params
 
-  const url = openClawBaseUrl
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (openClawApiKey) headers['Authorization'] = `Bearer ${openClawApiKey}`
-
   const toolCalls: ToolCall[] = []
+  const responseTools = tools.map((tool) => ({
+    type: 'function' as const,
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.input_schema,
+    },
+  }))
 
-  const post = async (extra: Record<string, unknown>) => {
-    const payload = {
-      agentId: openClawAgentId || undefined,
-      sessionKey: context.sessionKey || undefined,
-      mode: 'agent',
-      project: context.project,
-      context: {
-        documents: context.documents,
-        characters: context.characters,
-        worldEntries: context.worldEntries,
-        styleGuide: context.styleGuide,
-      },
-      messages: [
-        { role: 'system', content: systemPrompt },
-        ...messages,
-      ],
-      tools,
-      ...extra,
-    }
-
-    let res: Response
-    try {
-      res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(payload) })
-    } catch (err) {
-      throw new Error(
-        `OpenClaw unreachable at ${url}: ${err instanceof Error ? err.message : String(err)}`
-      )
-    }
-
-    if (!res.ok) {
-      let detail = ''
-      try { const b = await res.json(); detail = b.error ?? b.message ?? '' } catch {
-        detail = await res.text().catch(() => '')
-      }
-      throw new Error(`OpenClaw error: ${res.status}${detail ? ' — ' + detail : ''}`)
-    }
-
-    return await res.json()
-  }
-
-  // Initial request
-  let data = await post({})
+  let input: OpenClawInputItem[] = toOpenClawInputMessages(messages)
 
   for (let i = 0; i < 10; i++) {
-    // Final reply
-    if (typeof data.reply === 'string') {
-      return { text: data.reply, toolCalls }
+    const data = await postOpenClawResponses({
+      openClawBaseUrl,
+      openClawApiKey,
+      openClawAgentId,
+      sessionKey: context.sessionKey,
+      body: {
+        model: 'openclaw',
+        instructions: systemPrompt,
+        input,
+        tools: responseTools,
+        max_output_tokens: 8096,
+      },
+    })
+
+    const text = extractOpenClawText(data)
+    if (text) {
+      return { text, toolCalls }
     }
 
-    // Tool calls requested
-    if (!Array.isArray(data.toolCalls) || data.toolCalls.length === 0) {
-      throw new Error('OpenClaw returned neither reply nor toolCalls.')
+    const requestedToolCalls = extractOpenClawFunctionCalls(data)
+    if (requestedToolCalls.length === 0) {
+      throw new Error('OpenClaw returned neither assistant text nor function calls.')
     }
 
-    const toolResults: Array<{ id: string; result: string }> = []
-    for (const tc of data.toolCalls as Array<{ id: string; name: string; input: Record<string, unknown> }>) {
+    const toolResults: OpenClawFunctionCallOutputItem[] = []
+    for (const tc of requestedToolCalls) {
       const result = await onToolCall(tc.name, tc.input)
       toolCalls.push({ name: tc.name, input: tc.input, result })
-      toolResults.push({ id: tc.id, result })
+      toolResults.push({
+        type: 'function_call_output',
+        call_id: tc.id,
+        output: result,
+      })
     }
 
-    data = await post({ toolResults })
+    input = toolResults
   }
 
   return { text: '(Tool loop limit reached)', toolCalls }

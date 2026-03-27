@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { buildSystemPrompt, streamOpenClaw } from '../../src/lib/ai'
+import { buildSystemPrompt, callOpenClawWithTools, streamOpenClaw } from '../../src/lib/ai'
 
 describe('buildSystemPrompt', () => {
   it('renders style guide, parsed traits, grouped world entries, and chapter context', async () => {
@@ -59,7 +59,15 @@ describe('streamOpenClaw', () => {
   it('sends the expected payload and yields the reply', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ reply: 'A cold wind moved through the hall.' }),
+      json: async () => ({
+        output: [
+          {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'A cold wind moved through the hall.' }],
+          },
+        ],
+      }),
     })
     global.fetch = fetchMock as unknown as typeof fetch
 
@@ -67,7 +75,7 @@ describe('streamOpenClaw', () => {
     for await (const chunk of streamOpenClaw({
       messages: [{ role: 'user', content: 'Continue the scene.' }],
       systemPrompt: 'You are Daneel.',
-      openClawBaseUrl: 'http://localhost:3000/api/openclaw-bridge',
+      openClawBaseUrl: 'http://localhost:18789',
       openClawApiKey: 'secret-key',
       openClawAgentId: 'agent-7',
       context: {
@@ -85,12 +93,14 @@ describe('streamOpenClaw', () => {
     expect(chunks).toEqual(['A cold wind moved through the hall.'])
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://localhost:3000/api/openclaw-bridge',
+      'http://localhost:18789/v1/responses',
       expect.objectContaining({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: 'Bearer secret-key',
+          'x-openclaw-agent-id': 'agent-7',
+          'x-openclaw-session-key': 'session-123',
         },
       })
     )
@@ -99,19 +109,10 @@ describe('streamOpenClaw', () => {
     const body = JSON.parse(String(requestInit.body))
 
     expect(body).toMatchObject({
-      agentId: 'agent-7',
-      sessionKey: 'session-123',
-      mode: 'agent',
-      project: { id: 1, slug: 'my-novel', name: 'My Novel' },
-      context: {
-        documents: [{ key: 'story_bible', title: 'Story Bible', content: 'Canon facts' }],
-        characters: [{ name: 'Elara', role: 'Lead', description: 'Hero', notes: 'Afraid of heights' }],
-        worldEntries: [{ name: 'Citadel', type: 'Location', description: 'A fortress city' }],
-        styleGuide: 'Terse prose only.',
-      },
-      messages: [
-        { role: 'system', content: 'You are Daneel.' },
-        { role: 'user', content: 'Continue the scene.' },
+      model: 'openclaw',
+      instructions: 'You are Daneel.',
+      input: [
+        { type: 'message', role: 'user', content: 'Continue the scene.' },
       ],
     })
   })
@@ -120,7 +121,7 @@ describe('streamOpenClaw', () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,
       status: 502,
-      json: async () => ({ error: 'gateway unavailable' }),
+      json: async () => ({ error: { message: 'gateway unavailable' } }),
       text: async () => '',
     }) as unknown as typeof fetch
 
@@ -145,7 +146,7 @@ describe('streamOpenClaw', () => {
   it('throws when the server returns an unexpected response shape', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ toolCalls: [] }),
+      json: async () => ({ output: [] }),
     }) as unknown as typeof fetch
 
     await expect(async () => {
@@ -164,5 +165,113 @@ describe('streamOpenClaw', () => {
         // no-op
       }
     }).rejects.toThrow('OpenClaw provider returned an unexpected response shape')
+  })
+
+  it('runs the OpenClaw function-call loop through /v1/responses', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          output: [
+            {
+              type: 'function_call',
+              call_id: 'call_1',
+              name: 'patch_chapter',
+              arguments: JSON.stringify({ id: 'ch_1', find: 'old', replace: 'new' }),
+            },
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          output: [
+            {
+              type: 'message',
+              role: 'assistant',
+              content: [{ type: 'output_text', text: 'Chapter updated successfully.' }],
+            },
+          ],
+        }),
+      })
+
+    global.fetch = fetchMock as unknown as typeof fetch
+
+    const onToolCall = vi.fn().mockResolvedValue('Patched chapter "Chapter 1".')
+
+    const result = await callOpenClawWithTools({
+      messages: [{ role: 'user', content: '@Daneel tighten this scene.' }],
+      systemPrompt: 'You are Daneel.',
+      openClawBaseUrl: 'http://localhost:18789',
+      openClawApiKey: 'gateway-token',
+      openClawAgentId: 'main',
+      context: {
+        project: { id: 1, slug: 'my-novel', name: 'My Novel' },
+        documents: [],
+        characters: [],
+        worldEntries: [],
+        styleGuide: '',
+        sessionKey: 'session-456',
+      },
+      tools: [
+        {
+          name: 'patch_chapter',
+          description: 'Patch a chapter.',
+          input_schema: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              find: { type: 'string' },
+              replace: { type: 'string' },
+            },
+            required: ['id', 'find', 'replace'],
+          },
+        },
+      ],
+      onToolCall,
+    })
+
+    expect(result).toEqual({
+      text: 'Chapter updated successfully.',
+      toolCalls: [
+        {
+          name: 'patch_chapter',
+          input: { id: 'ch_1', find: 'old', replace: 'new' },
+          result: 'Patched chapter "Chapter 1".',
+        },
+      ],
+    })
+
+    expect(onToolCall).toHaveBeenCalledWith('patch_chapter', { id: 'ch_1', find: 'old', replace: 'new' })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+
+    const firstRequest = JSON.parse(String((fetchMock.mock.calls[0]?.[1] as RequestInit).body))
+    expect(firstRequest).toMatchObject({
+      model: 'openclaw',
+      instructions: 'You are Daneel.',
+      input: [{ type: 'message', role: 'user', content: '@Daneel tighten this scene.' }],
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'patch_chapter',
+            description: 'Patch a chapter.',
+          },
+        },
+      ],
+    })
+
+    const secondRequest = JSON.parse(String((fetchMock.mock.calls[1]?.[1] as RequestInit).body))
+    expect(secondRequest).toMatchObject({
+      model: 'openclaw',
+      input: [
+        {
+          type: 'function_call_output',
+          call_id: 'call_1',
+          output: 'Patched chapter "Chapter 1".',
+        },
+      ],
+    })
   })
 })

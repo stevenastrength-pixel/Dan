@@ -229,6 +229,7 @@ export default function SettingsPage() {
         body: JSON.stringify({
           baseUrl: form.openClawBaseUrl,
           apiKey: form.openClawApiKey,
+          agentId: form.openClawAgentId,
         }),
       })
       const data = await res.json()
@@ -351,11 +352,10 @@ export default function SettingsPage() {
             <div className="space-y-4">
               <div className="p-3 bg-slate-800/60 border border-slate-700/60 rounded-lg text-xs text-slate-400 leading-relaxed space-y-1">
                 <p>
-                  <span className="text-slate-300 font-medium">Built-in bridge</span> — click ⚡ below to call your LLM directly from DAN. No external server needed.
+                  <span className="text-slate-300 font-medium">OpenClaw Gateway</span> — point this at your Gateway HTTP endpoint. DAN will call the official <code className="bg-slate-700 px-1 rounded text-slate-300">/v1/responses</code> API.
                 </p>
                 <p>
-                  <span className="text-slate-300 font-medium">External server</span> — point the URL at your own endpoint. DAN will POST project context, documents, and message history as JSON and expect{' '}
-                  <code className="bg-slate-700 px-1 rounded text-slate-300">{'{ reply: string }'}</code>{' '}back.
+                  <span className="text-slate-300 font-medium">Base URL</span> — you can enter either the Gateway root, like <code className="bg-slate-700 px-1 rounded text-slate-300">http://localhost:18789</code>, or the full responses URL ending in <code className="bg-slate-700 px-1 rounded text-slate-300">/v1/responses</code>.
                 </p>
               </div>
 
@@ -363,25 +363,12 @@ export default function SettingsPage() {
                 <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide block mb-1">
                   Server URL <span className="text-red-500">*</span>
                 </label>
-                <div className="flex gap-2 mb-2">
-                  <button
-                    onClick={() => {
-                      const bridgeUrl = window.location.origin + '/api/openclaw-bridge'
-                      setForm({ ...form, openClawBaseUrl: bridgeUrl })
-                      setTestState('idle')
-                    }}
-                    className="px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-600/15 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-600/25 transition-colors shrink-0"
-                  >
-                    ⚡ Use built-in bridge
-                  </button>
-                  <span className="text-xs text-slate-600 self-center">— or enter an external server URL below</span>
-                </div>
                 <div className="flex gap-2">
                   <input
                     type="text"
                     value={form.openClawBaseUrl}
                     onChange={(e) => { setForm({ ...form, openClawBaseUrl: e.target.value }); setTestState('idle') }}
-                    placeholder="https://my-server.example.com"
+                    placeholder="http://localhost:18789 or http://localhost:18789/v1/responses"
                     className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 font-mono"
                   />
                   <button
@@ -399,7 +386,7 @@ export default function SettingsPage() {
                   </button>
                 </div>
                 <p className="text-xs text-slate-600 mt-1">
-                  The built-in bridge calls your configured LLM directly — no separate server needed. OpenClaw continues handling Telegram independently.
+                  DAN sends prompts to your OpenClaw Gateway from the server side. Use the Gateway token as the bearer token if auth is enabled.
                 </p>
                 {testState === 'fail' && testError && (
                   <p className="text-xs text-red-400 mt-1">{testError}</p>
