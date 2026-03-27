@@ -10,6 +10,16 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   if (PUBLIC.some((p) => pathname.startsWith(p))) {
+    // Redirect already-logged-in users away from auth pages
+    if (pathname.startsWith('/login') || pathname.startsWith('/register')) {
+      const token = request.cookies.get('session')?.value
+      if (token) {
+        try {
+          await jwtVerify(token, secret())
+          return NextResponse.redirect(new URL('/', request.url))
+        } catch {}
+      }
+    }
     return NextResponse.next()
   }
 
