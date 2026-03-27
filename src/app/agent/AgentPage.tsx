@@ -43,6 +43,7 @@ export default function GlobalChatPage() {
   const [onlineUsers, setOnlineUsers] = useState<string[]>([])
   const [hasMore, setHasMore] = useState(false)
   const [loadingOlder, setLoadingOlder] = useState(false)
+  const [ctxMenu, setCtxMenu] = useState<{ msg: GlobalMessage; x: number; y: number } | null>(null)
 
   // @ mention
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
@@ -53,6 +54,25 @@ export default function GlobalChatPage() {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (!ctxMenu) return
+    const close = () => setCtxMenu(null)
+    window.addEventListener('click', close)
+    window.addEventListener('contextmenu', close)
+    return () => { window.removeEventListener('click', close); window.removeEventListener('contextmenu', close) }
+  }, [ctxMenu])
+
+  const deleteMessage = async (id: number) => {
+    await fetch(`/api/global/messages/${id}`, { method: 'DELETE' })
+    setMessages(prev => prev.filter(m => m.id !== id))
+  }
+
+  const replyTo = (msg: GlobalMessage) => {
+    const lines = msg.content.split('\n').map((l: string) => `> ${l}`).join('\n')
+    setInput(`${lines}\n\n`)
+    setTimeout(() => inputRef.current?.focus(), 0)
+  }
 
   const mentionCandidates = mentionQuery !== null
     ? [DANEEL, ...onlineUsers.filter(u => u !== username && u !== DANEEL)]
@@ -262,11 +282,13 @@ export default function GlobalChatPage() {
           return (
             <div key={msg.id} id={`msg-${msg.id}`} className={`flex gap-2 items-end ${isMe ? 'justify-end' : 'justify-start'}`}>
               {!isMe && <Avatar name={msg.author} />}
-              <div className={`max-w-[75%] px-3.5 py-2 text-sm shadow-sm ${
-                isMe
-                  ? 'bg-[#effdde] dark:bg-[#2b5278] text-slate-800 dark:text-slate-100 rounded-2xl rounded-tr-sm'
-                  : 'bg-white dark:bg-[#182533] text-slate-800 dark:text-slate-100 rounded-2xl rounded-tl-sm'
-              }`}>
+              <div
+                onContextMenu={e => { e.preventDefault(); setCtxMenu({ msg, x: e.clientX, y: e.clientY }) }}
+                className={`max-w-[75%] px-3.5 py-2 text-sm shadow-sm cursor-default select-text ${
+                  isMe
+                    ? 'bg-[#effdde] dark:bg-[#2b5278] text-slate-800 dark:text-slate-100 rounded-2xl rounded-tr-sm'
+                    : 'bg-white dark:bg-[#182533] text-slate-800 dark:text-slate-100 rounded-2xl rounded-tl-sm'
+                }`}>
                 {!isMe && (
                   <p className={`text-xs mb-0.5 font-semibold ${isDaneel ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`}>
                     {msg.author}
@@ -281,6 +303,31 @@ export default function GlobalChatPage() {
             </div>
           )
         })}
+
+        {/* Context menu */}
+        {ctxMenu && (() => {
+          const menuW = 192, menuH = 140
+          const x = ctxMenu.x + menuW > window.innerWidth ? ctxMenu.x - menuW : ctxMenu.x
+          const y = ctxMenu.y + menuH > window.innerHeight ? ctxMenu.y - menuH : ctxMenu.y
+          return (
+            <div
+              className="fixed z-50 bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-100 dark:border-slate-700 py-1.5 w-48"
+              style={{ left: x, top: y }}
+              onClick={e => e.stopPropagation()}
+            >
+              {[
+                { label: '↩ Reply', action: () => { replyTo(ctxMenu.msg); setCtxMenu(null) } },
+                { label: '⎘ Copy Text', action: () => { navigator.clipboard.writeText(ctxMenu.msg.content); setCtxMenu(null) } },
+                ...(ctxMenu.msg.author === username ? [{ label: '🗑 Delete', action: () => { deleteMessage(ctxMenu.msg.id); setCtxMenu(null) }, danger: true }] : []),
+              ].map(item => (
+                <button key={item.label} onClick={item.action}
+                  className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700/60 transition-colors ${(item as { danger?: boolean }).danger ? 'text-red-500' : 'text-slate-700 dark:text-slate-200'}`}>
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          )
+        })()}
 
         {thinking && (
           <div className="flex gap-2 items-end justify-start">
