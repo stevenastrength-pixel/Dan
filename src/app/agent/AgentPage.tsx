@@ -425,6 +425,14 @@ export default function GlobalChatPage() {
         <input ref={fileInputRef} type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) attachFile(f); e.target.value = '' }} />
         <div className="flex gap-2">
           <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={sending || (authLoaded && !username)}
+            title="Attach file"
+            className="px-2 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 rounded-lg text-sm hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-40 transition-colors shrink-0"
+          >
+            📎
+          </button>
+          <button
             onClick={() => {
               const prefix = '@Daneel '
               const newInput = input.startsWith(prefix) ? input : prefix + input
@@ -436,14 +444,6 @@ export default function GlobalChatPage() {
             className="px-2 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-emerald-500 dark:text-emerald-400 rounded-lg text-sm hover:bg-slate-200 dark:hover:bg-slate-700 hover:border-emerald-500/40 disabled:opacity-40 transition-colors shrink-0"
           >
             ⬡
-          </button>
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={sending || (authLoaded && !username)}
-            title="Attach file"
-            className="px-2 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 rounded-lg text-sm hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-40 transition-colors shrink-0"
-          >
-            📎
           </button>
           <textarea
             ref={inputRef}
