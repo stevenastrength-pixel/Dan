@@ -368,4 +368,146 @@ describe('streamOpenClaw', () => {
       ],
     })
   })
+
+  it('expands multi_tool_use.parallel wrappers into individual tool executions', async () => {
+    const batchedBody = {
+      output: [
+        {
+          type: 'function_call',
+          call_id: 'call_batch',
+          name: 'multi_tool_use.parallel',
+          arguments: JSON.stringify({
+            tool_uses: [
+              {
+                recipient_name: 'create_character',
+                parameters: {
+                  name: 'Jonah Vale',
+                  role: 'Protagonist',
+                  description: 'A weary smuggler.',
+                  notes: 'Main viewpoint character.',
+                  traits: ['dry', 'observant'],
+                },
+              },
+              {
+                recipient_name: 'create_character',
+                parameters: {
+                  name: 'Iona',
+                  role: 'Supporting',
+                  description: 'A precise fixer.',
+                  notes: 'Transactional and controlled.',
+                  traits: ['precise'],
+                },
+              },
+            ],
+          }),
+        },
+      ],
+    }
+    const finalBody = {
+      output: [
+        {
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: 'Added the characters to the database.' }],
+        },
+      ],
+    }
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => JSON.stringify(batchedBody),
+        json: async () => batchedBody,
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => JSON.stringify(finalBody),
+        json: async () => finalBody,
+      })
+
+    global.fetch = fetchMock as unknown as typeof fetch
+
+    const onToolCall = vi
+      .fn()
+      .mockResolvedValueOnce('Created character "Jonah Vale" with id: ch_jonah')
+      .mockResolvedValueOnce('Created character "Iona" with id: ch_iona')
+
+    const result = await callOpenClawWithTools({
+      messages: [{ role: 'user', content: '@Daneel add all characters from the bible.' }],
+      systemPrompt: 'You are Daneel.',
+      openClawBaseUrl: 'http://localhost:18789',
+      openClawApiKey: 'gateway-token',
+      openClawAgentId: 'main',
+      context: {
+        project: { id: 1, slug: 'my-novel', name: 'My Novel' },
+        documents: [],
+        characters: [],
+        worldEntries: [],
+        styleGuide: '',
+        sessionKey: 'session-batch',
+      },
+      tools: [
+        {
+          name: 'create_character',
+          description: 'Create a new character.',
+          input_schema: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              role: { type: 'string' },
+              description: { type: 'string' },
+              notes: { type: 'string' },
+              traits: { type: 'array', items: { type: 'string' } },
+            },
+            required: ['name'],
+          },
+        },
+      ],
+      onToolCall,
+    })
+
+    expect(onToolCall).toHaveBeenCalledTimes(2)
+    expect(onToolCall).toHaveBeenNthCalledWith(1, 'create_character', {
+      name: 'Jonah Vale',
+      role: 'Protagonist',
+      description: 'A weary smuggler.',
+      notes: 'Main viewpoint character.',
+      traits: ['dry', 'observant'],
+    })
+    expect(onToolCall).toHaveBeenNthCalledWith(2, 'create_character', {
+      name: 'Iona',
+      role: 'Supporting',
+      description: 'A precise fixer.',
+      notes: 'Transactional and controlled.',
+      traits: ['precise'],
+    })
+    expect(result).toEqual({
+      text: 'Added the characters to the database.',
+      toolCalls: [
+        {
+          name: 'create_character',
+          input: {
+            name: 'Jonah Vale',
+            role: 'Protagonist',
+            description: 'A weary smuggler.',
+            notes: 'Main viewpoint character.',
+            traits: ['dry', 'observant'],
+          },
+          result: 'Created character "Jonah Vale" with id: ch_jonah',
+        },
+        {
+          name: 'create_character',
+          input: {
+            name: 'Iona',
+            role: 'Supporting',
+            description: 'A precise fixer.',
+            notes: 'Transactional and controlled.',
+            traits: ['precise'],
+          },
+          result: 'Created character "Iona" with id: ch_iona',
+        },
+      ],
+    })
+  })
 })

@@ -182,6 +182,40 @@ function extractOpenClawFunctionCalls(data: OpenClawResponsesResponse): Array<{ 
         input = JSON.parse(item.arguments)
       } catch {}
     }
+
+    // Some gateways/models may wrap multiple tool calls in a single
+    // "parallel" meta-call. Expand that wrapper so DAN executes each
+    // requested tool instead of only handling the outer envelope.
+    if (item.name === 'multi_tool_use.parallel' || item.name === 'parallel') {
+      const toolUses = Array.isArray(input.tool_uses) ? input.tool_uses : []
+      for (let i = 0; i < toolUses.length; i++) {
+        const toolUse = toolUses[i] as Record<string, unknown>
+        const rawName = typeof toolUse.recipient_name === 'string'
+          ? toolUse.recipient_name
+          : typeof toolUse.name === 'string'
+            ? toolUse.name
+            : ''
+        const expandedName = rawName.includes('.')
+          ? rawName.split('.').pop() || rawName
+          : rawName
+        const expandedInput =
+          typeof toolUse.parameters === 'object' && toolUse.parameters !== null
+            ? toolUse.parameters as Record<string, unknown>
+            : typeof toolUse.input === 'object' && toolUse.input !== null
+              ? toolUse.input as Record<string, unknown>
+              : {}
+
+        if (expandedName) {
+          toolCalls.push({
+            id: `${item.call_id}:${i}`,
+            name: expandedName,
+            input: expandedInput,
+          })
+        }
+      }
+      continue
+    }
+
     toolCalls.push({ id: item.call_id, name: item.name, input })
   }
 
