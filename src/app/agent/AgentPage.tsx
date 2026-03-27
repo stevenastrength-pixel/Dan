@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 
-type GlobalMessage = { id: number; role: string; author: string; content: string; createdAt: string }
+type GlobalMessage = { id: number; role: string; author: string; content: string; imageUrl?: string | null; createdAt: string }
 
 const DANEEL = 'Daneel'
 
@@ -44,6 +44,8 @@ export default function GlobalChatPage() {
   const [hasMore, setHasMore] = useState(false)
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [ctxMenu, setCtxMenu] = useState<{ msg: GlobalMessage; x: number; y: number } | null>(null)
+  const [pendingImage, setPendingImage] = useState<{ file: File; preview: string } | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // @ mention
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
@@ -220,20 +222,38 @@ export default function GlobalChatPage() {
     if (e.key === 'Enter' && !e.shiftKey) send()
   }
 
+  const attachImage = (file: File) => {
+    const preview = URL.createObjectURL(file)
+    setPendingImage({ file, preview })
+    inputRef.current?.focus()
+  }
+
   const send = async () => {
     const text = input.trim()
-    if (!text || sending || !username) return
+    if (!text && !pendingImage || sending || !username) return
     setInput('')
     setMentionQuery(null)
     setSending(true)
     if (inputRef.current) { inputRef.current.style.height = 'auto' }
     if (/@daneel\b/i.test(text)) setThinking(true)
 
+    let imageUrl: string | null = null
+    if (pendingImage) {
+      setPendingImage(null)
+      const fd = new FormData()
+      fd.append('file', pendingImage.file)
+      try {
+        const up = await fetch('/api/upload', { method: 'POST', body: fd })
+        const upData = await up.json()
+        imageUrl = upData.url ?? null
+      } catch {}
+    }
+
     try {
       const res = await fetch('/api/global/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ author: username, content: text }),
+        body: JSON.stringify({ author: username, content: text, imageUrl }),
       })
       const data = await res.json()
       setMessages(prev => {
@@ -305,8 +325,11 @@ export default function GlobalChatPage() {
                     {msg.author}
                   </p>
                 )}
+                {msg.imageUrl && (
+                  <img src={msg.imageUrl} alt="attachment" className="rounded-xl max-w-full max-h-64 object-contain mb-1 cursor-pointer" onClick={() => window.open(msg.imageUrl!, '_blank')} />
+                )}
                 <div className="flex items-end gap-3">
-                  <p className="whitespace-pre-wrap leading-relaxed flex-1">{renderContent(msg.content)}</p>
+                  {msg.content && <p className="whitespace-pre-wrap leading-relaxed flex-1">{renderContent(msg.content)}</p>}
                   <span className="text-[10px] text-slate-400 dark:text-slate-500 shrink-0 leading-none mb-0.5">{time}</span>
                 </div>
               </div>
@@ -378,6 +401,15 @@ export default function GlobalChatPage() {
           </div>
         )}
 
+        {pendingImage && (
+          <div className="mb-2 flex items-start gap-2">
+            <div className="relative">
+              <img src={pendingImage.preview} alt="preview" className="rounded-xl max-h-32 max-w-48 object-contain border border-slate-200 dark:border-slate-700" />
+              <button onClick={() => setPendingImage(null)} className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-slate-700 text-white rounded-full text-xs flex items-center justify-center hover:bg-red-500 transition-colors">✕</button>
+            </div>
+          </div>
+        )}
+        <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) attachImage(f); e.target.value = '' }} />
         <div className="flex gap-2">
           <button
             onClick={() => {
@@ -392,6 +424,14 @@ export default function GlobalChatPage() {
           >
             ⬡
           </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={sending || (authLoaded && !username)}
+            title="Attach image"
+            className="px-2 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 rounded-lg text-sm hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-40 transition-colors shrink-0"
+          >
+            📎
+          </button>
           <textarea
             ref={inputRef}
             value={input}
@@ -403,6 +443,10 @@ export default function GlobalChatPage() {
               e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
             }}
             onKeyDown={handleKeyDown}
+            onPaste={e => {
+              const file = Array.from(e.clipboardData.files).find(f => f.type.startsWith('image/'))
+              if (file) { e.preventDefault(); attachImage(file) }
+            }}
             onClick={e => updateMentionQuery(input, (e.target as HTMLTextAreaElement).selectionStart ?? input.length)}
             placeholder={authLoaded && !username ? 'Log in to chat…' : 'Message… (@Daneel for AI, @name to tag)'}
             disabled={authLoaded && !username}
@@ -410,7 +454,7 @@ export default function GlobalChatPage() {
           />
           <button
             onClick={send}
-            disabled={!input.trim() || sending || !username}
+            disabled={(!input.trim() && !pendingImage) || sending || !username}
             className="px-3 py-2 bg-emerald-500 text-white rounded-lg text-sm font-medium hover:bg-emerald-400 disabled:opacity-40 transition-colors"
           >
             {sending ? '…' : '↑'}

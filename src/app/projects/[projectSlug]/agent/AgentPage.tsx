@@ -6,7 +6,7 @@ import { ThemeToggle } from '@/components/ThemeToggle'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type ProjectMessage = { id: number; role: 'user' | 'assistant'; author: string; content: string; createdAt: string }
+type ProjectMessage = { id: number; role: 'user' | 'assistant'; author: string; content: string; imageUrl?: string | null; createdAt: string }
 type ChatMessage = { role: 'user' | 'assistant'; content: string; author?: string }
 type ProjectInfo = { id: number; name: string; slug: string; description: string }
 type ProjectDocument = { id: number; key: string; title: string; content: string; updatedAt: string }
@@ -491,12 +491,14 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
   const [hasMore, setHasMore] = useState(false)
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [ctxMenu, setCtxMenu] = useState<{ msg: ProjectMessage; x: number; y: number } | null>(null)
+  const [pendingImage, setPendingImage] = useState<{ file: File; preview: string } | null>(null)
 
   const lastIdRef = useRef<number>(0)
   const anchorIdRef = useRef<number | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!inputRef.current) return
@@ -674,13 +676,31 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
     if (e.key === 'Enter' && !e.shiftKey) send()
   }
 
+  const attachImage = (file: File) => {
+    const preview = URL.createObjectURL(file)
+    setPendingImage({ file, preview })
+    inputRef.current?.focus()
+  }
+
   const send = async () => {
     const text = input.trim()
-    if (!text || sending) return
+    if (!text && !pendingImage || sending) return
     setInput('')
     setMentionQuery(null)
     setSending(true)
     if (inputRef.current) { inputRef.current.style.height = 'auto' }
+
+    let imageUrl: string | null = null
+    if (pendingImage) {
+      setPendingImage(null)
+      const fd = new FormData()
+      fd.append('file', pendingImage.file)
+      try {
+        const up = await fetch('/api/upload', { method: 'POST', body: fd })
+        const upData = await up.json()
+        imageUrl = upData.url ?? null
+      } catch {}
+    }
 
     const mentionsDaneel = /@daneel\b/i.test(text)
     if (mentionsDaneel) setThinking(true)
@@ -689,7 +709,7 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
       const res = await fetch(`/api/projects/${projectSlug}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ author: username, content: text }),
+        body: JSON.stringify({ author: username, content: text, imageUrl }),
       })
       const data = await res.json()
       setMessages(prev => {
@@ -764,8 +784,11 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
                     {msg.author}
                   </p>
                 )}
+                {msg.imageUrl && (
+                  <img src={msg.imageUrl} alt="attachment" className="rounded-xl max-w-full max-h-64 object-contain mb-1 cursor-pointer" onClick={() => window.open(msg.imageUrl!, '_blank')} />
+                )}
                 <div className="flex items-end gap-3">
-                  <p className="whitespace-pre-wrap leading-relaxed flex-1">{renderContent(msg.content)}</p>
+                  {msg.content && <p className="whitespace-pre-wrap leading-relaxed flex-1">{renderContent(msg.content)}</p>}
                   <span className="text-[10px] text-slate-400 dark:text-slate-500 shrink-0 leading-none mb-0.5">{time}</span>
                 </div>
               </div>
@@ -844,6 +867,15 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
           </div>
         )}
 
+        {pendingImage && (
+          <div className="mb-2 flex items-start gap-2">
+            <div className="relative">
+              <img src={pendingImage.preview} alt="preview" className="rounded-xl max-h-32 max-w-48 object-contain border border-slate-200 dark:border-slate-700" />
+              <button onClick={() => setPendingImage(null)} className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-slate-700 text-white rounded-full text-xs flex items-center justify-center hover:bg-red-500 transition-colors">✕</button>
+            </div>
+          </div>
+        )}
+        <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) attachImage(f); e.target.value = '' }} />
         <div className="flex gap-2 pr-4 sm:pr-8 md:pr-16">
           <button
             onClick={() => {
@@ -862,19 +894,31 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
           >
             ⬡
           </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={sending}
+            title="Attach image"
+            className="px-2 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400 rounded-lg text-sm hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-40 transition-colors shrink-0"
+          >
+            📎
+          </button>
           <textarea
             ref={inputRef}
             value={input}
             rows={1}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
+            onPaste={e => {
+              const file = Array.from(e.clipboardData.files).find(f => f.type.startsWith('image/'))
+              if (file) { e.preventDefault(); attachImage(file) }
+            }}
             onClick={e => updateMentionQuery(input, (e.target as HTMLTextAreaElement).selectionStart ?? input.length)}
             placeholder="Message… (@Daneel for AI, @name to tag)"
             className="flex-1 bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-800 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 resize-none overflow-hidden leading-relaxed"
           />
           <button
             onClick={send}
-            disabled={!input.trim() || sending}
+            disabled={(!input.trim() && !pendingImage) || sending}
             className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-500 disabled:opacity-40 transition-colors"
           >
             {sending ? '…' : '↑'}

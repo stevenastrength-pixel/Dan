@@ -32,6 +32,7 @@ model ProjectMessage {
   role      String   // 'user' | 'assistant'
   author    String
   content   String
+  imageUrl  String?
   createdAt DateTime @default(now())
 }
 
@@ -40,6 +41,7 @@ model GlobalMessage {
   role      String   // 'user' | 'assistant'
   author    String
   content   String
+  imageUrl  String?
   createdAt DateTime @default(now())
 }
 
