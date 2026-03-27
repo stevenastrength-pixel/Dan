@@ -719,13 +719,13 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
             <div key={msg.id} id={`msg-${msg.id}`} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-[80%] rounded-xl px-4 py-2.5 text-sm border ${
                 isDaneel
-                  ? 'bg-slate-900/90 border-slate-700/60 text-slate-200 dark:text-slate-200'
+                  ? 'bg-slate-900/90 border-slate-700/60 text-slate-200'
                   : isMe
-                  ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-900 dark:text-emerald-50'
-                  : 'bg-slate-800/60 border-slate-700/40 text-slate-800 dark:text-slate-200'
+                  ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-100'
+                  : 'bg-slate-800/60 border-slate-700/40 text-slate-200'
               }`}>
                 <p className={`text-xs mb-1 font-medium ${
-                  isDaneel ? 'text-emerald-400' : isMe ? 'text-emerald-700 dark:text-emerald-400' : 'text-sky-600 dark:text-sky-400'
+                  isDaneel ? 'text-emerald-400' : isMe ? 'text-emerald-400' : 'text-sky-400'
                 }`}>
                   {msg.author}
                 </p>
