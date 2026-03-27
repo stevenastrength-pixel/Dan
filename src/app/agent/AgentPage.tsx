@@ -322,7 +322,7 @@ export default function GlobalChatPage() {
             >
               {[
                 { label: '↩ Reply', action: () => { replyTo(ctxMenu.msg); setCtxMenu(null) } },
-                { label: '⎘ Copy Text', action: () => { navigator.clipboard.writeText(ctxMenu.msg.content); setCtxMenu(null) } },
+                { label: '⎘ Copy Text', action: () => { navigator.clipboard.writeText(ctxMenu.msg.content.replace(/\*\*(.*?)\*\*/g, '$1').replace(/\*(.*?)\*/g, '$1').replace(/\n{3,}/g, '\n\n').trim()); setCtxMenu(null) } },
                 ...(ctxMenu.msg.author === username ? [{ label: '🗑 Delete', action: () => { deleteMessage(ctxMenu.msg.id); setCtxMenu(null) }, danger: true }] : []),
               ].map(item => (
                 <button key={item.label} onClick={item.action}
