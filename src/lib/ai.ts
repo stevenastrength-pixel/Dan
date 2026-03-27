@@ -69,6 +69,8 @@ type OpenClawResponsesResponse = {
   error?: { message?: string; type?: string } | string
 }
 
+const OPENCLAW_LOG_LIMIT = 20000
+
 function normalizeOpenClawResponsesUrl(baseUrl: string): string {
   const url = new URL(baseUrl)
   if (url.pathname.endsWith('/v1/responses')) return url.toString()
@@ -86,6 +88,26 @@ function buildOpenClawHeaders(params: {
   if (params.openClawAgentId) headers['x-openclaw-agent-id'] = params.openClawAgentId
   if (params.sessionKey) headers['x-openclaw-session-key'] = params.sessionKey
   return headers
+}
+
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch (err) {
+    return `[unserializable: ${err instanceof Error ? err.message : String(err)}]`
+  }
+}
+
+function truncateForLog(text: string): string {
+  return text.length > OPENCLAW_LOG_LIMIT
+    ? text.slice(0, OPENCLAW_LOG_LIMIT) + '\n...[truncated]'
+    : text
+}
+
+function redactHeaders(headers: Record<string, string>): Record<string, string> {
+  const redacted = { ...headers }
+  if (redacted.Authorization) redacted.Authorization = 'Bearer [redacted]'
+  return redacted
 }
 
 function toOpenClawInputMessages(messages: Array<{ role: 'user' | 'assistant'; content: string }>): OpenClawResponsesMessageItem[] {
@@ -169,6 +191,12 @@ async function postOpenClawResponses(params: {
     sessionKey: params.sessionKey,
   })
 
+  console.log('[openclaw] request', truncateForLog(safeStringify({
+    url,
+    headers: redactHeaders(headers),
+    body: params.body,
+  })))
+
   let res: Response
   try {
     res = await fetch(url, {
@@ -184,15 +212,35 @@ async function postOpenClawResponses(params: {
 
   if (!res.ok) {
     let detail = ''
+    let loggedBody = ''
     try {
-      detail = parseOpenClawErrorBody(await res.json())
+      const parsed = await res.json()
+      detail = parseOpenClawErrorBody(parsed)
+      loggedBody = safeStringify(parsed)
     } catch {
-      detail = await res.text().catch(() => '')
+      loggedBody = await res.text().catch(() => '')
+      detail = loggedBody
     }
+    console.error('[openclaw] response error', truncateForLog(safeStringify({
+      url,
+      status: res.status,
+      body: loggedBody,
+    })))
     throw new Error(`OpenClaw provider error: ${res.status}${detail ? ' — ' + detail : ''}`)
   }
 
-  return await res.json()
+  const rawText = await res.text()
+  console.log('[openclaw] response', truncateForLog(safeStringify({
+    url,
+    status: res.status,
+    body: rawText,
+  })))
+
+  try {
+    return JSON.parse(rawText) as OpenClawResponsesResponse
+  } catch (err) {
+    throw new Error(`OpenClaw provider returned invalid JSON: ${err instanceof Error ? err.message : String(err)}`)
+  }
 }
 
 // ─── Anthropic / OpenAI streaming (no tools) ─────────────────────────────────

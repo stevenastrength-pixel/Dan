@@ -57,17 +57,19 @@ describe('streamOpenClaw', () => {
   })
 
   it('sends the expected payload and yields the reply', async () => {
+    const responseBody = {
+      output: [
+        {
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: 'A cold wind moved through the hall.' }],
+        },
+      ],
+    }
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({
-        output: [
-          {
-            type: 'message',
-            role: 'assistant',
-            content: [{ type: 'output_text', text: 'A cold wind moved through the hall.' }],
-          },
-        ],
-      }),
+      text: async () => JSON.stringify(responseBody),
+      json: async () => responseBody,
     })
     global.fetch = fetchMock as unknown as typeof fetch
 
@@ -144,9 +146,11 @@ describe('streamOpenClaw', () => {
   })
 
   it('throws when the server returns an unexpected response shape', async () => {
+    const responseBody = { output: [] }
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ output: [] }),
+      text: async () => JSON.stringify(responseBody),
+      json: async () => responseBody,
     }) as unknown as typeof fetch
 
     await expect(async () => {
@@ -168,32 +172,36 @@ describe('streamOpenClaw', () => {
   })
 
   it('runs the OpenClaw function-call loop through /v1/responses', async () => {
+    const toolCallBody = {
+      output: [
+        {
+          type: 'function_call',
+          call_id: 'call_1',
+          name: 'patch_chapter',
+          arguments: JSON.stringify({ id: 'ch_1', find: 'old', replace: 'new' }),
+        },
+      ],
+    }
+    const finalBody = {
+      output: [
+        {
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: 'Chapter updated successfully.' }],
+        },
+      ],
+    }
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({
-          output: [
-            {
-              type: 'function_call',
-              call_id: 'call_1',
-              name: 'patch_chapter',
-              arguments: JSON.stringify({ id: 'ch_1', find: 'old', replace: 'new' }),
-            },
-          ],
-        }),
+        text: async () => JSON.stringify(toolCallBody),
+        json: async () => toolCallBody,
       })
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({
-          output: [
-            {
-              type: 'message',
-              role: 'assistant',
-              content: [{ type: 'output_text', text: 'Chapter updated successfully.' }],
-            },
-          ],
-        }),
+        text: async () => JSON.stringify(finalBody),
+        json: async () => finalBody,
       })
 
     global.fetch = fetchMock as unknown as typeof fetch
