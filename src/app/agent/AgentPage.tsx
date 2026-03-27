@@ -58,9 +58,8 @@ export default function GlobalChatPage() {
   useEffect(() => {
     if (!ctxMenu) return
     const close = () => setCtxMenu(null)
-    window.addEventListener('click', close)
-    window.addEventListener('contextmenu', close)
-    return () => { window.removeEventListener('click', close); window.removeEventListener('contextmenu', close) }
+    const timer = setTimeout(() => window.addEventListener('mousedown', close), 0)
+    return () => { clearTimeout(timer); window.removeEventListener('mousedown', close) }
   }, [ctxMenu])
 
   const deleteMessage = async (id: number) => {
@@ -283,7 +282,7 @@ export default function GlobalChatPage() {
             <div key={msg.id} id={`msg-${msg.id}`} className={`flex gap-2 items-end ${isMe ? 'justify-end' : 'justify-start'}`}>
               {!isMe && <Avatar name={msg.author} />}
               <div
-                onContextMenu={e => { e.preventDefault(); setCtxMenu({ msg, x: e.clientX, y: e.clientY }) }}
+                onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ msg, x: e.clientX, y: e.clientY }) }}
                 className={`max-w-[75%] px-3.5 py-2 text-sm shadow-sm cursor-default select-text ${
                   isMe
                     ? 'bg-[#effdde] dark:bg-[#2b5278] text-slate-800 dark:text-slate-100 rounded-2xl rounded-tr-sm'
