@@ -119,7 +119,7 @@ export async function POST(
 
   const grouped = worldEntries.reduce<Record<string, string[]>>((acc, e) => {
     if (!acc[e.type]) acc[e.type] = []
-    acc[e.type].push(`- **${e.name}**${e.description ? `: ${e.description}` : ''}`)
+    acc[e.type].push(`- **${e.name}** (id: \`${e.id}\`)${e.description ? `: ${e.description}` : ''}`)
     return acc
   }, {})
   const worldList = Object.keys(grouped).length > 0
@@ -156,6 +156,9 @@ Use create_chapter to create a new chapter. Use get_chapter to read a chapter be
 
 ## IMPORTANT: Managing characters
 Character IDs are listed in the Characters section below. Use find_character_by_name if you need to resolve a name to an id or confirm whether a character already exists. Use create_character to add someone new to the project database. Use get_character before updating an existing character so you preserve important details. Use update_character to replace the stored fields for a character when asked to sync the database with the Story Bible or other canon documents. Use delete_character only when the user clearly asks to remove a character record from the database.
+
+## IMPORTANT: Managing world entries
+World entry IDs are listed in the World Building section below. Use find_world_entry_by_name if you need to resolve a name to an id or confirm whether an entry already exists. Use create_world_entry to add a new location, faction, concept, item, or event to the project database. Use get_world_entry before updating an existing entry so you preserve important details. Use update_world_entry to replace the stored fields for an entry when syncing from the Story Bible or other canon documents. Use delete_world_entry only when the user clearly asks to remove a world entry from the database.
 
 ## CRITICAL: Creating polls
 When asked to create a poll, you MUST call the create_poll tool — do NOT write poll details in text without calling the tool. Writing about a poll in prose has no effect; only the tool call actually creates one. Call the tool first, then briefly confirm what you created.
@@ -356,6 +359,70 @@ ${worldList}`
         properties: {
           id: { type: 'string', description: 'The character id.' },
           summary: { type: 'string', description: 'One sentence describing why the character was removed.' },
+        },
+        required: ['id', 'summary'],
+      },
+    },
+    {
+      name: 'create_world_entry',
+      description: 'Create a new world-building entry in the project database.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          name: { type: 'string', description: 'The world entry name.' },
+          type: { type: 'string', description: 'Entry type such as Location, Faction, Concept, Item, or Event.' },
+          description: { type: 'string', description: 'Short entry description.' },
+          notes: { type: 'string', description: 'Long-form notes and canon details.' },
+        },
+        required: ['name'],
+      },
+    },
+    {
+      name: 'get_world_entry',
+      description: 'Read the full current stored data for a world entry before updating it.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          id: { type: 'string', description: 'The world entry id from the World Building list in your context.' },
+        },
+        required: ['id'],
+      },
+    },
+    {
+      name: 'find_world_entry_by_name',
+      description: 'Look up one or more world entries in this project by name.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          name: { type: 'string', description: 'Full or partial world entry name to search for.' },
+        },
+        required: ['name'],
+      },
+    },
+    {
+      name: 'update_world_entry',
+      description: 'Update an existing world entry with the full new set of stored fields.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          id: { type: 'string', description: 'The world entry id.' },
+          name: { type: 'string', description: 'The world entry name.' },
+          type: { type: 'string', description: 'Entry type such as Location, Faction, Concept, Item, or Event.' },
+          description: { type: 'string', description: 'Short entry description.' },
+          notes: { type: 'string', description: 'Long-form notes and canon details.' },
+          summary: { type: 'string', description: 'One or two sentences describing what changed.' },
+        },
+        required: ['id', 'name', 'type', 'description', 'notes', 'summary'],
+      },
+    },
+    {
+      name: 'delete_world_entry',
+      description: 'Delete a world entry from the project database. Only use this when the user explicitly asks to remove the record.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          id: { type: 'string', description: 'The world entry id.' },
+          summary: { type: 'string', description: 'One sentence describing why the entry was removed.' },
         },
         required: ['id', 'summary'],
       },
@@ -599,6 +666,91 @@ ${worldList}`
       await prisma.character.delete({ where: { id } })
       return `Deleted character "${character.name}". ${summary}`
     }
+    if (name === 'create_world_entry') {
+      const { name, type, description, notes } = input as {
+        name: string
+        type?: string
+        description?: string
+        notes?: string
+      }
+      console.log('[create_world_entry] called with:', { name, type, projectId: project.id })
+      if (!name?.trim()) return 'Error: name is required.'
+
+      const existingEntry = await prisma.worldEntry.findFirst({
+        where: { projectId: project.id, name: name.trim() },
+      })
+      if (existingEntry) {
+        return `Error: world entry "${name.trim()}" already exists with id ${existingEntry.id}. Use update_world_entry instead.`
+      }
+
+      const entry = await prisma.worldEntry.create({
+        data: {
+          projectId: project.id,
+          name: name.trim(),
+          type: type?.trim() || 'Location',
+          description: description?.trim() ?? '',
+          notes: notes?.trim() ?? '',
+        },
+      })
+      console.log('[create_world_entry] created:', entry.id)
+      return `Created world entry "${entry.name}" with id: ${entry.id}`
+    }
+    if (name === 'get_world_entry') {
+      const { id } = input as { id: string }
+      const entry = await prisma.worldEntry.findUnique({ where: { id } })
+      if (!entry || entry.projectId !== project.id) return `Error: world entry "${id}" not found in this project.`
+      return `Stored world entry for "${entry.name}":\n\n${JSON.stringify({
+        id: entry.id,
+        name: entry.name,
+        type: entry.type,
+        description: entry.description,
+        notes: entry.notes,
+      }, null, 2)}`
+    }
+    if (name === 'find_world_entry_by_name') {
+      const { name } = input as { name: string }
+      if (!name?.trim()) return 'Error: name is required.'
+      const matches = await prisma.worldEntry.findMany({
+        where: {
+          projectId: project.id,
+          name: { contains: name.trim() },
+        },
+        orderBy: [{ type: 'asc' }, { name: 'asc' }],
+      })
+      if (matches.length === 0) return `No world entries found matching "${name.trim()}".`
+      return matches.map((entry) =>
+        `- ${entry.name} (id: ${entry.id}, type: ${entry.type})${entry.description ? ` — ${entry.description}` : ''}`
+      ).join('\n')
+    }
+    if (name === 'update_world_entry') {
+      const { id, name, type, description, notes, summary } = input as {
+        id: string
+        name: string
+        type: string
+        description: string
+        notes: string
+        summary: string
+      }
+      const entry = await prisma.worldEntry.findUnique({ where: { id } })
+      if (!entry || entry.projectId !== project.id) return `Error: world entry "${id}" not found in this project.`
+      await prisma.worldEntry.update({
+        where: { id },
+        data: {
+          name: name?.trim() ?? entry.name,
+          type: type?.trim() ?? entry.type,
+          description: description ?? '',
+          notes: notes ?? '',
+        },
+      })
+      return `Updated world entry "${name?.trim() || entry.name}". ${summary}`
+    }
+    if (name === 'delete_world_entry') {
+      const { id, summary } = input as { id: string; summary: string }
+      const entry = await prisma.worldEntry.findUnique({ where: { id } })
+      if (!entry || entry.projectId !== project.id) return `Error: world entry "${id}" not found in this project.`
+      await prisma.worldEntry.delete({ where: { id } })
+      return `Deleted world entry "${entry.name}". ${summary}`
+    }
     if (name === 'get_chapter') {
       const { id } = input as { id: string }
       const chapter = await prisma.chapter.findUnique({ where: { id } })
@@ -722,7 +874,7 @@ ${worldList}`
 
     pollCreated = toolCallsMade.some(tc => tc.name === 'create_poll')
     const editLog = toolCallsMade
-      .filter(tc => ['update_document', 'patch_document', 'create_chapter', 'create_character', 'update_character', 'delete_character', 'update_chapter', 'patch_chapter', 'create_poll', 'assign_task'].includes(tc.name))
+      .filter(tc => ['update_document', 'patch_document', 'create_chapter', 'create_character', 'update_character', 'delete_character', 'create_world_entry', 'update_world_entry', 'delete_world_entry', 'update_chapter', 'patch_chapter', 'create_poll', 'assign_task'].includes(tc.name))
       .map(tc => {
         if (tc.name === 'create_poll') {
           const { question, options } = tc.input as { question: string; options: string[] }
@@ -744,6 +896,16 @@ ${worldList}`
         if (tc.name === 'delete_character') {
           const deleted = characters.find(c => c.id === (tc.input as { id: string }).id)
           return `👤 Removed character **"${deleted?.name ?? (tc.input as { id: string }).id}"**: ${(tc.input as { summary: string }).summary}`
+        }
+        if (tc.name === 'create_world_entry') {
+          return `🌍 Added world entry **"${(tc.input as { name: string }).name}"**`
+        }
+        if (tc.name === 'update_world_entry') {
+          return `🌍 Updated world entry **"${(tc.input as { name: string }).name}"**: ${(tc.input as { summary: string }).summary}`
+        }
+        if (tc.name === 'delete_world_entry') {
+          const deleted = worldEntries.find(w => w.id === (tc.input as { id: string }).id)
+          return `🌍 Removed world entry **"${deleted?.name ?? (tc.input as { id: string }).id}"**: ${(tc.input as { summary: string }).summary}`
         }
         if (tc.name === 'update_chapter' || tc.name === 'patch_chapter') {
           const chapter = chapters.find(c => c.id === (tc.input as { id: string }).id)
