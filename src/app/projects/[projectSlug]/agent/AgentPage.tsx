@@ -721,11 +721,11 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
                 isDaneel
                   ? 'bg-slate-900/90 border-slate-700/60 text-slate-200'
                   : isMe
-                  ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-100'
+                  ? 'bg-emerald-600 border-emerald-600 text-white'
                   : 'bg-slate-800/60 border-slate-700/40 text-slate-200'
               }`}>
                 <p className={`text-xs mb-1 font-medium ${
-                  isDaneel ? 'text-emerald-400' : isMe ? 'text-emerald-400' : 'text-sky-400'
+                  isDaneel ? 'text-emerald-400' : isMe ? 'text-emerald-100' : 'text-sky-400'
                 }`}>
                   {msg.author}
                 </p>
