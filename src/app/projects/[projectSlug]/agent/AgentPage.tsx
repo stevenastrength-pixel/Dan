@@ -506,8 +506,13 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
   }, [ctxMenu])
 
   const deleteMessage = async (id: number) => {
-    await fetch(`/api/projects/${projectSlug}/messages/${id}`, { method: 'DELETE' })
-    setMessages(prev => prev.filter(m => m.id !== id))
+    const res = await fetch(`/api/projects/${projectSlug}/messages/${id}`, { method: 'DELETE' })
+    if (res.ok) {
+      setMessages(prev => prev.filter(m => m.id !== id))
+    } else {
+      const err = await res.json().catch(() => ({}))
+      console.error('[deleteMessage] failed', res.status, err)
+    }
   }
 
   const replyTo = (msg: ProjectMessage) => {
