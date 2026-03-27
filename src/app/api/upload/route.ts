@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic'
 
 import { NextResponse } from 'next/server'
-import { writeFile, readdir, stat, unlink } from 'fs/promises'
+import { writeFile, readdir, stat, unlink, mkdir } from 'fs/promises'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
 
@@ -10,7 +10,12 @@ const STORAGE_LIMIT = 1024 * 1024 * 1024 // 1 GB total
 
 const UPLOADS_DIR = join(process.cwd(), 'public', 'uploads')
 
+async function ensureUploadsDir() {
+  await mkdir(UPLOADS_DIR, { recursive: true })
+}
+
 async function pruneUploads() {
+  await ensureUploadsDir()
   const names = await readdir(UPLOADS_DIR)
   const files = await Promise.all(
     names.map(async name => {
@@ -37,6 +42,7 @@ export async function POST(request: Request) {
   const ext = originalName.includes('.') ? originalName.split('.').pop()! : 'bin'
   const filename = `${randomUUID()}.${ext}`
   const bytes = await file.arrayBuffer()
+  await ensureUploadsDir()
   await writeFile(join(UPLOADS_DIR, filename), Buffer.from(bytes))
 
   await pruneUploads()
