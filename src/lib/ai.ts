@@ -70,6 +70,7 @@ type OpenClawResponsesResponse = {
 }
 
 const OPENCLAW_LOG_LIMIT = 20000
+const OPENCLAW_DEBUG_LOGS = process.env.OPENCLAW_DEBUG_LOGS === '1'
 
 function normalizeOpenClawResponsesUrl(baseUrl: string): string {
   const url = new URL(baseUrl)
@@ -108,6 +109,16 @@ function redactHeaders(headers: Record<string, string>): Record<string, string> 
   const redacted = { ...headers }
   if (redacted.Authorization) redacted.Authorization = 'Bearer [redacted]'
   return redacted
+}
+
+function logOpenClaw(tag: string, payload: unknown) {
+  if (!OPENCLAW_DEBUG_LOGS) return
+  console.log(tag, truncateForLog(safeStringify(payload)))
+}
+
+function errorOpenClaw(tag: string, payload: unknown) {
+  if (!OPENCLAW_DEBUG_LOGS) return
+  console.error(tag, truncateForLog(safeStringify(payload)))
 }
 
 function toOpenClawInputMessages(messages: Array<{ role: 'user' | 'assistant'; content: string }>): OpenClawResponsesMessageItem[] {
@@ -191,11 +202,11 @@ async function postOpenClawResponses(params: {
     sessionKey: params.sessionKey,
   })
 
-  console.log('[openclaw] request', truncateForLog(safeStringify({
+  logOpenClaw('[openclaw] request', {
     url,
     headers: redactHeaders(headers),
     body: params.body,
-  })))
+  })
 
   let res: Response
   try {
@@ -221,20 +232,20 @@ async function postOpenClawResponses(params: {
       loggedBody = await res.text().catch(() => '')
       detail = loggedBody
     }
-    console.error('[openclaw] response error', truncateForLog(safeStringify({
+    errorOpenClaw('[openclaw] response error', {
       url,
       status: res.status,
       body: loggedBody,
-    })))
+    })
     throw new Error(`OpenClaw provider error: ${res.status}${detail ? ' — ' + detail : ''}`)
   }
 
   const rawText = await res.text()
-  console.log('[openclaw] response', truncateForLog(safeStringify({
+  logOpenClaw('[openclaw] response', {
     url,
     status: res.status,
     body: rawText,
-  })))
+  })
 
   try {
     return JSON.parse(rawText) as OpenClawResponsesResponse
@@ -538,18 +549,18 @@ export async function callOpenClawWithTools(params: {
 
     const toolResults: OpenClawFunctionCallOutputItem[] = []
     for (const tc of requestedToolCalls) {
-      console.log('[openclaw] function_call', truncateForLog(safeStringify({
+      logOpenClaw('[openclaw] function_call', {
         id: tc.id,
         name: tc.name,
         input: tc.input,
-      })))
+      })
       const result = await onToolCall(tc.name, tc.input)
       toolCalls.push({ name: tc.name, input: tc.input, result })
-      console.log('[openclaw] function_result', truncateForLog(safeStringify({
+      logOpenClaw('[openclaw] function_result', {
         id: tc.id,
         name: tc.name,
         result,
-      })))
+      })
       toolResults.push({
         type: 'function_call_output',
         call_id: tc.id,
