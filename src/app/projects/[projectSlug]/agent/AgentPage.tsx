@@ -496,7 +496,7 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
   const anchorIdRef = useRef<number | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     if (!ctxMenu) return
@@ -632,10 +632,12 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
     }
   }
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value
     setInput(val)
     updateMentionQuery(val, e.target.selectionStart ?? val.length)
+    e.target.style.height = 'auto'
+    e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
   }
 
   const selectMention = (name: string) => {
@@ -652,7 +654,7 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
     }, 0)
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (mentionCandidates.length > 0) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIndex(i => Math.min(i + 1, mentionCandidates.length - 1)); return }
       if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIndex(i => Math.max(i - 1, 0)); return }
@@ -672,6 +674,7 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
     setInput('')
     setMentionQuery(null)
     setSending(true)
+    if (inputRef.current) { inputRef.current.style.height = 'auto' }
 
     const mentionsDaneel = /@daneel\b/i.test(text)
     if (mentionsDaneel) setThinking(true)
@@ -853,14 +856,15 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
           >
             ⬡
           </button>
-          <input
+          <textarea
             ref={inputRef}
             value={input}
+            rows={1}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            onClick={e => updateMentionQuery(input, (e.target as HTMLInputElement).selectionStart ?? input.length)}
+            onClick={e => updateMentionQuery(input, (e.target as HTMLTextAreaElement).selectionStart ?? input.length)}
             placeholder="Message… (@Daneel for AI, @name to tag)"
-            className="flex-1 bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-800 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+            className="flex-1 bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-800 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 resize-none overflow-hidden leading-relaxed"
           />
           <button
             onClick={send}

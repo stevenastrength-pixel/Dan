@@ -53,7 +53,7 @@ export default function GlobalChatPage() {
   const anchorIdRef = useRef<number | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     if (!ctxMenu) return
@@ -204,7 +204,7 @@ export default function GlobalChatPage() {
     }, 0)
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (mentionCandidates.length > 0) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIndex(i => Math.min(i + 1, mentionCandidates.length - 1)); return }
       if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIndex(i => Math.max(i - 1, 0)); return }
@@ -220,6 +220,7 @@ export default function GlobalChatPage() {
     setInput('')
     setMentionQuery(null)
     setSending(true)
+    if (inputRef.current) { inputRef.current.style.height = 'auto' }
     if (/@daneel\b/i.test(text)) setThinking(true)
 
     try {
@@ -385,15 +386,21 @@ export default function GlobalChatPage() {
           >
             ⬡
           </button>
-          <input
+          <textarea
             ref={inputRef}
             value={input}
-            onChange={e => { setInput(e.target.value); updateMentionQuery(e.target.value, e.target.selectionStart ?? e.target.value.length) }}
+            rows={1}
+            onChange={e => {
+              setInput(e.target.value)
+              updateMentionQuery(e.target.value, e.target.selectionStart ?? e.target.value.length)
+              e.target.style.height = 'auto'
+              e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
+            }}
             onKeyDown={handleKeyDown}
-            onClick={e => updateMentionQuery(input, (e.target as HTMLInputElement).selectionStart ?? input.length)}
+            onClick={e => updateMentionQuery(input, (e.target as HTMLTextAreaElement).selectionStart ?? input.length)}
             placeholder={authLoaded && !username ? 'Log in to chat…' : 'Message… (@Daneel for AI, @name to tag)'}
             disabled={authLoaded && !username}
-            className="flex-1 bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-800 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 disabled:opacity-40"
+            className="flex-1 bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-800 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 disabled:opacity-40 resize-none overflow-hidden leading-relaxed"
           />
           <button
             onClick={send}
