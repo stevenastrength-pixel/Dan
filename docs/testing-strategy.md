@@ -10,6 +10,7 @@ Initial automated tests live in `tests/lib/ai.test.ts` and validate:
 - `streamOpenClaw()` request payload construction
 - OpenClaw error propagation
 - OpenClaw response-shape validation
+- OpenClaw mixed assistant-text plus function-call handling
 
 These tests were chosen first because they are:
 

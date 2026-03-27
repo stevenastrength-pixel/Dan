@@ -154,6 +154,9 @@ Available document keys: ${docKeys.join(', ') || 'none yet'}.
 Chapter IDs are listed in the Chapters section below — use them directly, do NOT ask the user for an ID you already have.
 Use create_chapter to create a new chapter. Use get_chapter to read a chapter before editing. Use patch_chapter for targeted edits. Use update_chapter only for full rewrites.
 
+## IMPORTANT: Managing characters
+Character IDs are listed in the Characters section below. Use create_character to add someone new to the project database. Use get_character before updating an existing character so you preserve important details. Use update_character to replace the stored fields for a character when asked to sync the database with the Story Bible or other canon documents.
+
 ## CRITICAL: Creating polls
 When asked to create a poll, you MUST call the create_poll tool — do NOT write poll details in text without calling the tool. Writing about a poll in prose has no effect; only the tool call actually creates one. Call the tool first, then briefly confirm what you created.
 Use create_poll when the team faces a genuine creative decision — plot forks, character choices, world-building options. Keep options clear and mutually exclusive.
@@ -281,6 +284,57 @@ ${worldList}`
           synopsis: { type: 'string', description: 'A brief synopsis of the chapter (optional).' },
         },
         required: ['title', 'content'],
+      },
+    },
+    {
+      name: 'create_character',
+      description: 'Create a new character in the project database. Use this when extracting characters from the Story Bible or when the team asks you to add a character record.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          name: { type: 'string', description: 'The character name.' },
+          role: { type: 'string', description: 'Narrative role such as Protagonist, Antagonist, Supporting, Mentor, Love Interest, or Minor.' },
+          description: { type: 'string', description: 'Short character description.' },
+          notes: { type: 'string', description: 'Long-form notes, backstory, arc, or canon details.' },
+          traits: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Optional list of traits to store on the character record.',
+          },
+        },
+        required: ['name'],
+      },
+    },
+    {
+      name: 'get_character',
+      description: 'Read the full current stored data for a character before updating it.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          id: { type: 'string', description: 'The character id from the Characters list in your context.' },
+        },
+        required: ['id'],
+      },
+    },
+    {
+      name: 'update_character',
+      description: 'Update an existing character record with the full new set of stored fields.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          id: { type: 'string', description: 'The character id.' },
+          name: { type: 'string', description: 'The character name.' },
+          role: { type: 'string', description: 'Narrative role such as Protagonist, Antagonist, Supporting, Mentor, Love Interest, or Minor.' },
+          description: { type: 'string', description: 'Short character description.' },
+          notes: { type: 'string', description: 'Long-form notes, backstory, arc, or canon details.' },
+          traits: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Optional list of traits to store on the character record.',
+          },
+          summary: { type: 'string', description: 'One or two sentences describing what changed.' },
+        },
+        required: ['id', 'name', 'role', 'description', 'notes', 'traits', 'summary'],
       },
     },
     {
@@ -428,6 +482,76 @@ ${worldList}`
       })
       return `Created chapter "${newChapter.title}" with id: ${newChapter.id}`
     }
+    if (name === 'create_character') {
+      const { name, role, description, notes, traits } = input as {
+        name: string
+        role?: string
+        description?: string
+        notes?: string
+        traits?: string[]
+      }
+      console.log('[create_character] called with:', { name, role, projectId: project.id })
+      if (!name?.trim()) return 'Error: name is required.'
+
+      const existingCharacter = await prisma.character.findFirst({
+        where: { projectId: project.id, name: name.trim() },
+      })
+      if (existingCharacter) {
+        return `Error: character "${name.trim()}" already exists with id ${existingCharacter.id}. Use update_character instead.`
+      }
+
+      const newCharacter = await prisma.character.create({
+        data: {
+          projectId: project.id,
+          name: name.trim(),
+          role: role?.trim() || 'Supporting',
+          description: description?.trim() ?? '',
+          notes: notes?.trim() ?? '',
+          traits: JSON.stringify((traits ?? []).map((trait) => String(trait).trim()).filter(Boolean)),
+        },
+      })
+      console.log('[create_character] created:', newCharacter.id)
+      return `Created character "${newCharacter.name}" with id: ${newCharacter.id}`
+    }
+    if (name === 'get_character') {
+      const { id } = input as { id: string }
+      const character = await prisma.character.findUnique({ where: { id } })
+      if (!character || character.projectId !== project.id) return `Error: character "${id}" not found in this project.`
+      return `Stored character record for "${character.name}":\n\n${JSON.stringify({
+        id: character.id,
+        name: character.name,
+        role: character.role,
+        description: character.description,
+        notes: character.notes,
+        traits: (() => {
+          try { return JSON.parse(character.traits) } catch { return [] }
+        })(),
+      }, null, 2)}`
+    }
+    if (name === 'update_character') {
+      const { id, name, role, description, notes, traits, summary } = input as {
+        id: string
+        name: string
+        role: string
+        description: string
+        notes: string
+        traits: string[]
+        summary: string
+      }
+      const character = await prisma.character.findUnique({ where: { id } })
+      if (!character || character.projectId !== project.id) return `Error: character "${id}" not found in this project.`
+      await prisma.character.update({
+        where: { id },
+        data: {
+          name: name?.trim() ?? character.name,
+          role: role?.trim() ?? character.role,
+          description: description ?? '',
+          notes: notes ?? '',
+          traits: JSON.stringify((traits ?? []).map((trait) => String(trait).trim()).filter(Boolean)),
+        },
+      })
+      return `Updated character "${name?.trim() || character.name}". ${summary}`
+    }
     if (name === 'get_chapter') {
       const { id } = input as { id: string }
       const chapter = await prisma.chapter.findUnique({ where: { id } })
@@ -551,7 +675,7 @@ ${worldList}`
 
     pollCreated = toolCallsMade.some(tc => tc.name === 'create_poll')
     const editLog = toolCallsMade
-      .filter(tc => ['update_document', 'patch_document', 'create_chapter', 'update_chapter', 'patch_chapter', 'create_poll', 'assign_task'].includes(tc.name))
+      .filter(tc => ['update_document', 'patch_document', 'create_chapter', 'create_character', 'update_character', 'update_chapter', 'patch_chapter', 'create_poll', 'assign_task'].includes(tc.name))
       .map(tc => {
         if (tc.name === 'create_poll') {
           const { question, options } = tc.input as { question: string; options: string[] }
@@ -563,6 +687,12 @@ ${worldList}`
         }
         if (tc.name === 'create_chapter') {
           return `📖 Created chapter **"${(tc.input as { title: string }).title}"**`
+        }
+        if (tc.name === 'create_character') {
+          return `👤 Added character **"${(tc.input as { name: string }).name}"**`
+        }
+        if (tc.name === 'update_character') {
+          return `👤 Updated character **"${(tc.input as { name: string }).name}"**: ${(tc.input as { summary: string }).summary}`
         }
         if (tc.name === 'update_chapter' || tc.name === 'patch_chapter') {
           const chapter = chapters.find(c => c.id === (tc.input as { id: string }).id)
