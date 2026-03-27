@@ -282,4 +282,90 @@ describe('streamOpenClaw', () => {
       ],
     })
   })
+
+  it('continues the tool loop when a response contains assistant text and function calls together', async () => {
+    const mixedBody = {
+      output: [
+        {
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: 'Let me check the Story Bible.' }],
+        },
+        {
+          type: 'function_call',
+          call_id: 'call_story_bible',
+          name: 'get_document',
+          arguments: JSON.stringify({ key: 'story_bible' }),
+        },
+      ],
+    }
+    const finalBody = {
+      output: [
+        {
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: 'I can now see the full Story Bible.' }],
+        },
+      ],
+    }
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => JSON.stringify(mixedBody),
+        json: async () => mixedBody,
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => JSON.stringify(finalBody),
+        json: async () => finalBody,
+      })
+
+    global.fetch = fetchMock as unknown as typeof fetch
+
+    const onToolCall = vi.fn().mockResolvedValue('Full content of "Story Bible":\n\nComplete canonical reference')
+
+    const result = await callOpenClawWithTools({
+      messages: [{ role: 'user', content: '@Daneel can you read the story bible?' }],
+      systemPrompt: 'You are Daneel.',
+      openClawBaseUrl: 'http://localhost:18789',
+      openClawApiKey: 'gateway-token',
+      openClawAgentId: 'main',
+      context: {
+        project: { id: 1, slug: 'my-novel', name: 'My Novel' },
+        documents: [],
+        characters: [],
+        worldEntries: [],
+        styleGuide: '',
+        sessionKey: 'session-789',
+      },
+      tools: [
+        {
+          name: 'get_document',
+          description: 'Read a project document.',
+          input_schema: {
+            type: 'object',
+            properties: {
+              key: { type: 'string' },
+            },
+            required: ['key'],
+          },
+        },
+      ],
+      onToolCall,
+    })
+
+    expect(onToolCall).toHaveBeenCalledWith('get_document', { key: 'story_bible' })
+    expect(result).toEqual({
+      text: 'Let me check the Story Bible.\n\nI can now see the full Story Bible.',
+      toolCalls: [
+        {
+          name: 'get_document',
+          input: { key: 'story_bible' },
+          result: 'Full content of "Story Bible":\n\nComplete canonical reference',
+        },
+      ],
+    })
+  })
 })
