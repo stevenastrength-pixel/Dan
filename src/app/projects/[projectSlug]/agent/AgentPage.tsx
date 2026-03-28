@@ -59,11 +59,28 @@ function UsernameModal({ onSave }: { onSave: (name: string) => void }) {
   )
 }
 
-function Toast({ message, onDismiss }: { message: string; onDismiss: () => void }) {
-  useEffect(() => { const t = setTimeout(onDismiss, 3500); return () => clearTimeout(t) }, [onDismiss])
+function Toast({ message, onDismiss, showClose }: { message: string; onDismiss: () => void; showClose?: boolean }) {
+  useEffect(() => {
+    if (showClose) return
+    const t = setTimeout(onDismiss, 3500)
+    return () => clearTimeout(t)
+  }, [onDismiss, showClose])
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-800 border border-slate-700 text-slate-200 text-sm px-4 py-2.5 rounded-lg shadow-lg z-50">
-      {message}
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-800 border border-slate-700 text-slate-200 text-sm px-4 py-2.5 rounded-lg shadow-lg z-50 flex items-center gap-3">
+      <span>{message}</span>
+      {showClose && (
+        <button onClick={onDismiss} className="text-white/70 hover:text-white text-base leading-none ml-1" aria-label="Dismiss">✕</button>
+      )}
+    </div>
+  )
+}
+
+function ConfirmToast({ message, onConfirm, onCancel }: { message: string; onConfirm: () => void; onCancel: () => void }) {
+  return (
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-800 border border-slate-600 text-slate-200 text-sm px-4 py-3 rounded-lg shadow-xl z-50 flex items-center gap-3">
+      <span>{message}</span>
+      <button onClick={onConfirm} className="px-3 py-1 bg-red-600 hover:bg-red-500 text-white rounded-md text-xs font-semibold transition-colors">Reset</button>
+      <button onClick={onCancel} className="text-white/70 hover:text-white text-base leading-none" aria-label="Cancel">✕</button>
     </div>
   )
 }
@@ -1061,6 +1078,7 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
   const [documents, setDocuments] = useState<ProjectDocument[]>([])
   const [toast, setToast] = useState<string | null>(null)
   const [reloading, setReloading] = useState(false)
+  const [confirmReset, setConfirmReset] = useState(false)
   const [view, setView] = useState<MainView>({ type: 'console' })
   const [pendingTasks, setPendingTasks] = useState(0)
   const [unvotedPolls, setUnvotedPolls] = useState(0)
@@ -1194,11 +1212,12 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
   }
 
   const reloadContext = async () => {
+    setConfirmReset(false)
     setReloading(true)
     await fetchDocuments()
     const res = await fetch(`/api/projects/${project.slug}/agent/reload`, { method: 'POST' })
     const data = await res.json()
-    showToast(data.message ?? 'Context reloaded.')
+    showToast(data.message ?? 'Session reset.')
     setReloading(false)
   }
 
@@ -1233,7 +1252,8 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
   return (
     <div className="flex flex-1 min-h-0 bg-slate-950 overflow-hidden">
       {authLoaded && !username && <UsernameModal onSave={name => { localStorage.setItem('dan-username', name); setUsername(name) }} />}
-      {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}
+      {toast && <Toast message={toast} onDismiss={() => setToast(null)} showClose />}
+      {confirmReset && <ConfirmToast message="Reset session? This will clear conversation history." onConfirm={reloadContext} onCancel={() => setConfirmReset(false)} />}
 
       {/* Main area (header + content) — pushed left on mobile when doc sidebar opens */}
       <div className={`flex flex-col flex-1 min-h-0 overflow-hidden transition-transform duration-200 ease-in-out ${docSidebarOpen ? '-translate-x-64 lg:translate-x-0' : 'translate-x-0'}`}>
@@ -1263,9 +1283,9 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
               {joiningContributor ? 'Joining…' : 'Join Project'}
             </button>
           )}
-          <button onClick={reloadContext} disabled={reloading}
+          <button onClick={() => setConfirmReset(true)} disabled={reloading}
             className="w-8 h-8 sm:w-auto sm:h-auto sm:px-3 sm:py-1.5 flex items-center justify-center border border-slate-700 rounded-lg text-xs font-medium text-slate-400 hover:border-slate-600 hover:text-slate-300 transition-colors disabled:opacity-40">
-            ↺<span className="hidden sm:inline ml-1">{reloading ? 'Reloading…' : 'Reload Context'}</span>
+            ↺<span className="hidden sm:inline ml-1">{reloading ? 'Resetting…' : 'Reload Context'}</span>
           </button>
           {view.type !== 'console' && (
             <button onClick={() => { setView({ type: 'console' }); setDocSidebarOpen(true) }}

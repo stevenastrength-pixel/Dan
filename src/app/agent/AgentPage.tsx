@@ -7,6 +7,32 @@ type GlobalMessage = { id: number; role: string; author: string; content: string
 
 const DANEEL = 'Daneel'
 
+function Toast({ message, onDismiss, showClose }: { message: string; onDismiss: () => void; showClose?: boolean }) {
+  useEffect(() => {
+    if (showClose) return
+    const t = setTimeout(onDismiss, 3500)
+    return () => clearTimeout(t)
+  }, [onDismiss, showClose])
+  return (
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-800 border border-slate-700 text-slate-200 text-sm px-4 py-2.5 rounded-lg shadow-lg z-50 flex items-center gap-3">
+      <span>{message}</span>
+      {showClose && (
+        <button onClick={onDismiss} className="text-white/70 hover:text-white text-base leading-none ml-1" aria-label="Dismiss">✕</button>
+      )}
+    </div>
+  )
+}
+
+function ConfirmToast({ message, onConfirm, onCancel }: { message: string; onConfirm: () => void; onCancel: () => void }) {
+  return (
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-800 border border-slate-600 text-slate-200 text-sm px-4 py-3 rounded-lg shadow-xl z-50 flex items-center gap-3">
+      <span>{message}</span>
+      <button onClick={onConfirm} className="px-3 py-1 bg-red-600 hover:bg-red-500 text-white rounded-md text-xs font-semibold transition-colors">Reset</button>
+      <button onClick={onCancel} className="text-white/70 hover:text-white text-base leading-none" aria-label="Cancel">✕</button>
+    </div>
+  )
+}
+
 function renderContent(text: string) {
   const parts = text.split(/(@\w+)/g)
   return (
@@ -50,6 +76,9 @@ export default function GlobalChatPage() {
   const [pendingFile, setPendingFile] = useState<{ file: File; preview: string | null; isImage: boolean } | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [toast, setToast] = useState<string | null>(null)
+  const [reloading, setReloading] = useState(false)
+  const [confirmReset, setConfirmReset] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // @ mention
@@ -83,6 +112,15 @@ export default function GlobalChatPage() {
       const err = await res.json().catch(() => ({}))
       console.error('[deleteMessage] failed', res.status, err)
     }
+  }
+
+  const reloadContext = async () => {
+    setConfirmReset(false)
+    setReloading(true)
+    const res = await fetch('/api/global/agent/reload', { method: 'POST' })
+    const data = await res.json()
+    setToast(data.message ?? 'Session reset.')
+    setReloading(false)
   }
 
   const replyTo = (msg: GlobalMessage) => {
@@ -320,6 +358,8 @@ export default function GlobalChatPage() {
 
   return (
     <div className="flex flex-1 overflow-hidden">
+      {toast && <Toast message={toast} onDismiss={() => setToast(null)} showClose />}
+      {confirmReset && <ConfirmToast message="Reset session? This will clear conversation history." onConfirm={reloadContext} onCancel={() => setConfirmReset(false)} />}
       {/* Search panel */}
       {searchOpen && (
         <div className="w-72 shrink-0 flex flex-col border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 z-10">
@@ -379,7 +419,13 @@ export default function GlobalChatPage() {
           <Avatar key={name} name={name} />
         ))}
         <span className="text-xs text-slate-600 hidden sm:inline">{onlineUsers.length} online</span>
-        <button onClick={() => setSearchOpen(o => !o)} title="Search messages" className={`ml-auto px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${searchOpen ? 'bg-emerald-600/20 border-emerald-500/40 text-emerald-300' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600'}`}>Search</button>
+        <div className="ml-auto flex items-center gap-2">
+          <button onClick={() => setConfirmReset(true)} disabled={reloading}
+            className="w-8 h-8 sm:w-auto sm:h-auto sm:px-3 sm:py-1.5 flex items-center justify-center border border-slate-700 rounded-lg text-xs font-medium text-slate-400 hover:border-slate-600 hover:text-slate-300 transition-colors disabled:opacity-40">
+            ↺<span className="hidden sm:inline ml-1">{reloading ? 'Resetting…' : 'Reload Context'}</span>
+          </button>
+          <button onClick={() => setSearchOpen(o => !o)} title="Search messages" className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${searchOpen ? 'bg-emerald-600/20 border-emerald-500/40 text-emerald-300' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600'}`}>Search</button>
+        </div>
       </div>
 
       {/* Messages */}

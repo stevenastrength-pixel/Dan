@@ -74,13 +74,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ message, aiMessage: null })
   }
 
-  const [settings, recentMessages] = await Promise.all([
-    prisma.settings.findFirst(),
-    prisma.globalMessage.findMany({
-      orderBy: { createdAt: 'desc' },
-      take: 20,
-    }).then(msgs => msgs.reverse()),
-  ])
+  const settings = await prisma.settings.findFirst()
+  const recentMessages = await prisma.globalMessage.findMany({
+    where: settings?.globalContextResetAt ? { createdAt: { gte: settings.globalContextResetAt } } : {},
+    orderBy: { createdAt: 'desc' },
+    take: 20,
+  }).then(msgs => msgs.reverse())
 
   const provider = (settings?.aiProvider ?? 'anthropic') as 'anthropic' | 'openai' | 'openclaw'
 
@@ -105,7 +104,7 @@ export async function POST(request: Request) {
     characters: [],
     worldEntries: [],
     styleGuide: '',
-    sessionKey: requestingUser?.openClawSessionKey,
+    sessionKey: `${requestingUser?.openClawSessionKey ?? 'dan'}-global${settings?.globalSessionNonce ? `-${settings.globalSessionNonce}` : ''}`,
   }
 
   // Build conversation history excluding the just-saved message (we pass content directly)
