@@ -7,31 +7,33 @@ import { readFile } from 'fs/promises'
 
 const MAX_CONTEXT_CHARS = 50_000
 
-async function loadContextFiles(contextFilesJson: string): Promise<string> {
+async function loadContextFiles(contextFilesJson: string): Promise<Array<{ key: string; title: string; content: string }>> {
   let paths: string[] = []
-  try { paths = JSON.parse(contextFilesJson) } catch { return '' }
+  try { paths = JSON.parse(contextFilesJson) } catch { return [] }
 
-  const parts: string[] = []
-  let total = 0
-  for (const filePath of paths) {
+  const docs: Array<{ key: string; title: string; content: string }> = []
+  for (let i = 0; i < paths.length; i++) {
+    const filePath = paths[i]
     if (!filePath.trim()) continue
     try {
       const content = await readFile(filePath.trim(), 'utf8')
-      const chunk = content.slice(0, MAX_CONTEXT_CHARS - total)
-      parts.push(`### ${filePath.trim()}\n${chunk}`)
-      total += chunk.length
-      if (total >= MAX_CONTEXT_CHARS) break
+      docs.push({
+        key: `workspace_context_${i}`,
+        title: filePath.trim().split('/').pop() ?? 'Workspace Context',
+        content: content.slice(0, MAX_CONTEXT_CHARS),
+      })
     } catch { /* skip unreadable files */ }
   }
-  return parts.length > 0 ? `## Workspace Context\n\n${parts.join('\n\n---\n\n')}` : ''
+  return docs
 }
 
 function buildAgentSystemPrompt(params: {
   characters: Array<{ name: string; role: string; description: string; traits: string }>
   worldEntries: Array<{ name: string; type: string; description: string }>
   styleGuide: string
+  documents?: Array<{ key: string; title: string; content: string }>
 }): string {
-  const { characters, worldEntries, styleGuide } = params
+  const { characters, worldEntries, styleGuide, documents = [] } = params
 
   const characterList =
     characters.length > 0
@@ -62,7 +64,7 @@ function buildAgentSystemPrompt(params: {
 You operate from DAN's Agent Control Room, where you help coordinate the creative team's work, facilitate decisions through polls, and serve as the institutional memory for the project.
 
 Your personality: sharp, witty, slightly dry, deeply familiar with the story and the team. You know the characters better than some of the writers do. You're helpful but never sycophantic — you push back when an idea doesn't fit the established world.
-${styleGuide ? `\n## Project Style Guide\n${styleGuide}\n` : ''}
+${styleGuide ? `\n## Project Style Guide\n${styleGuide}\n` : ''}${documents.length > 0 ? `\n## Documents\n${documents.filter(d => d.content.trim()).map(d => `### ${d.title}\n${d.content}`).join('\n\n---\n\n')}\n` : ''}
 ## Current Cast of Characters
 ${characterList}
 
@@ -107,13 +109,13 @@ export async function POST(request: Request) {
     )
   }
 
-  const contextSection = await loadContextFiles(settings?.contextFiles ?? '[]')
-  const builtPrompt = buildAgentSystemPrompt({
+  const contextDocs = await loadContextFiles(settings?.contextFiles ?? '[]')
+  const systemPrompt = buildAgentSystemPrompt({
     characters,
     worldEntries,
     styleGuide: settings?.styleGuide ?? '',
+    documents: contextDocs,
   })
-  const systemPrompt = contextSection ? `${contextSection}\n\n---\n\n${builtPrompt}` : builtPrompt
 
   const openClawContext: OpenClawContext = {
     project: { id: 0, slug: 'global-agent', name: 'Global Agent' },

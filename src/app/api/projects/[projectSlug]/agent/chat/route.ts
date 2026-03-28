@@ -8,23 +8,24 @@ const CORE_DOC_ORDER = ['story_bible', 'project_instructions', 'wake_prompt']
 
 const MAX_CONTEXT_CHARS = 50_000
 
-async function loadContextFiles(contextFilesJson: string): Promise<string> {
+async function loadContextFiles(contextFilesJson: string): Promise<Array<{ key: string; title: string; content: string }>> {
   let paths: string[] = []
-  try { paths = JSON.parse(contextFilesJson) } catch { return '' }
+  try { paths = JSON.parse(contextFilesJson) } catch { return [] }
 
-  const parts: string[] = []
-  let total = 0
-  for (const filePath of paths) {
+  const docs: Array<{ key: string; title: string; content: string }> = []
+  for (let i = 0; i < paths.length; i++) {
+    const filePath = paths[i]
     if (!filePath.trim()) continue
     try {
       const content = await readFile(filePath.trim(), 'utf8')
-      const chunk = content.slice(0, MAX_CONTEXT_CHARS - total)
-      parts.push(`### ${filePath.trim()}\n${chunk}`)
-      total += chunk.length
-      if (total >= MAX_CONTEXT_CHARS) break
+      docs.push({
+        key: `workspace_context_${i}`,
+        title: filePath.trim().split('/').pop() ?? 'Workspace Context',
+        content: content.slice(0, MAX_CONTEXT_CHARS),
+      })
     } catch { /* skip unreadable files */ }
   }
-  return parts.length > 0 ? `## Workspace Context\n\n${parts.join('\n\n---\n\n')}` : ''
+  return docs
 }
 
 function buildAgentSystemPrompt(params: {
@@ -139,15 +140,14 @@ export async function POST(request: Request, { params }: { params: { projectSlug
     )
   }
 
-  const contextSection = await loadContextFiles(settings?.contextFiles ?? '[]')
-  const builtPrompt = buildAgentSystemPrompt({
+  const contextDocs = await loadContextFiles(settings?.contextFiles ?? '[]')
+  const systemPrompt = buildAgentSystemPrompt({
     project,
     characters,
     worldEntries,
-    documents,
+    documents: [...contextDocs, ...documents],
     styleGuide: settings?.styleGuide ?? '',
   })
-  const systemPrompt = contextSection ? `${contextSection}\n\n---\n\n${builtPrompt}` : builtPrompt
 
   // Build the OpenClaw context payload (also used when logging / debugging)
   const openClawContext: OpenClawContext = {
