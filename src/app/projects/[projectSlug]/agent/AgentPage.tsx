@@ -482,6 +482,7 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
   const [thinking, setThinking] = useState(false)
   const [onlineUsers, setOnlineUsers] = useState<string[]>([])
   const [allUsers, setAllUsers] = useState<string[]>([])
+  const [readers, setReaders] = useState<{ username: string; lastReadMessageId: number }[]>([])
 
   // @ mention dropdown
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
@@ -544,7 +545,8 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
       anchorIdRef.current = null
       return
     }
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const el = scrollContainerRef.current
+    if (el) el.scrollTop = el.scrollHeight
   }, [messages, thinking, pendingFile])
 
   // Initial message load
@@ -603,20 +605,21 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
     return () => clearInterval(interval)
   }, [projectSlug])
 
-  // Heartbeat — mark this user as online (only when username is known)
+  // Heartbeat — mark this user as online and report last read message
   useEffect(() => {
     if (!username?.trim()) return
     const ping = () => {
+      const lastId = messages[messages.length - 1]?.id
       fetch(`/api/projects/${projectSlug}/presence`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username }),
+        body: JSON.stringify({ username, ...(lastId ? { lastReadMessageId: lastId } : {}) }),
       }).catch(() => {})
     }
     ping()
     const interval = setInterval(ping, 30000)
     return () => clearInterval(interval)
-  }, [projectSlug, username])
+  }, [projectSlug, username, messages])
 
   // Poll presence
   useEffect(() => {
@@ -626,6 +629,7 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
         .then(data => {
           setOnlineUsers(data.online ?? [])
           setAllUsers(data.all ?? [])
+          setReaders(data.readers ?? [])
         })
         .catch(() => {})
     }
@@ -860,8 +864,10 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
           const isDaneel = msg.author === DANEEL
           const raw = msg.createdAt.endsWith('Z') ? msg.createdAt : msg.createdAt + 'Z'
           const time = new Date(raw).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          // Users whose last read position is exactly this message (excluding the message author and current user)
+          const seenBy = readers.filter(r => r.lastReadMessageId === msg.id && r.username !== msg.author && r.username !== username)
           return (
-            <div key={msg.id} id={`msg-${msg.id}`} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+            <div key={msg.id} id={`msg-${msg.id}`} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
               <div
                 onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ msg, x: e.clientX, y: e.clientY }) }}
                 className={`max-w-[75%] px-3.5 py-2 text-sm shadow-sm cursor-default select-text ${
@@ -888,6 +894,15 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
                   <span className="text-[10px] text-slate-400 dark:text-slate-500 shrink-0 leading-none mb-0.5">{time}</span>
                 </div>
               </div>
+              {seenBy.length > 0 && (
+                <div className="flex gap-0.5 mt-0.5 px-1">
+                  {seenBy.map(r => (
+                    <div key={r.username} title={`Seen by ${r.username}`} className="w-3.5 h-3.5 rounded-full bg-slate-400 dark:bg-slate-500 flex items-center justify-center" >
+                      <span className="text-[7px] font-bold text-white leading-none">{r.username[0].toUpperCase()}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )
         })}
@@ -974,7 +989,7 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
             </div>
           </div>
         )}
-        <input ref={fileInputRef} type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) attachFile(f); e.target.value = '' }} />
+        <input ref={fileInputRef} type="file" accept="*/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) attachFile(f); e.target.value = '' }} />
         <div className="flex gap-2">
           <button
             onClick={() => fileInputRef.current?.click()}

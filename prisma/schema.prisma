@@ -49,9 +49,10 @@ model GlobalMessage {
 }
 
 model UserPresence {
-  projectId Int
-  username  String
-  lastSeen  DateTime @default(now())
+  projectId          Int
+  username           String
+  lastSeen           DateTime @default(now())
+  lastReadMessageId  Int?
 
   @@id([projectId, username])
 }

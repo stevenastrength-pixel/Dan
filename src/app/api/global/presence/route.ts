@@ -17,17 +17,26 @@ export async function GET() {
     where: { projectId: GLOBAL_PRESENCE_ID, lastSeen: { gte: cutoff } },
   })
 
-  return NextResponse.json({ online: recent.map(u => u.username) })
+  const allPresence = await prisma.userPresence.findMany({
+    where: { projectId: GLOBAL_PRESENCE_ID, username: { notIn: ['', 'Anonymous', 'anonymous'] } },
+  })
+  const readers = allPresence
+    .filter(u => u.lastReadMessageId != null)
+    .map(u => ({ username: u.username, lastReadMessageId: u.lastReadMessageId as number }))
+
+  return NextResponse.json({ online: recent.map(u => u.username), readers })
 }
 
 export async function POST(request: Request) {
-  const { username } = await request.json()
+  const { username, lastReadMessageId } = await request.json()
   if (!username?.trim()) return NextResponse.json({ error: 'Missing username' }, { status: 400 })
+
+  const readUpdate = typeof lastReadMessageId === 'number' ? { lastReadMessageId } : {}
 
   await prisma.userPresence.upsert({
     where: { projectId_username: { projectId: GLOBAL_PRESENCE_ID, username } },
-    create: { projectId: GLOBAL_PRESENCE_ID, username, lastSeen: new Date() },
-    update: { lastSeen: new Date() },
+    create: { projectId: GLOBAL_PRESENCE_ID, username, lastSeen: new Date(), ...readUpdate },
+    update: { lastSeen: new Date(), ...readUpdate },
   })
 
   return NextResponse.json({ ok: true })

@@ -101,24 +101,26 @@ function AdminPanel({ currentUserId }: { currentUserId: number }) {
         <p className="text-xs text-slate-600 mb-3">
           Anyone with this code can create an account. Regenerate it to invalidate the old one.
         </p>
-        <div className="flex items-center gap-2">
-          <code className="flex-1 bg-slate-800 border border-slate-700/60 rounded-lg px-3 py-2 text-sm font-mono text-emerald-300 tracking-widest select-all">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+          <code className="flex-1 bg-slate-800 border border-slate-700/60 rounded-lg px-3 py-2 text-sm font-mono text-emerald-300 tracking-widest select-all break-all">
             {inviteCode || '—'}
           </code>
-          <button
-            onClick={copyCode}
-            className="px-3 py-2 text-xs rounded-lg bg-slate-800 border border-slate-700/60 text-slate-300 hover:bg-slate-700 transition-colors shrink-0"
-          >
-            {copied ? '✓ Copied' : 'Copy'}
-          </button>
-          <button
-            onClick={regenerate}
-            disabled={regenerating}
-            className="px-3 py-2 text-xs rounded-lg bg-slate-800 border border-slate-700/60 text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors disabled:opacity-40 shrink-0"
-            title="Generate a new code — the old one stops working immediately"
-          >
-            {regenerating ? 'Generating…' : '↺ Regenerate'}
-          </button>
+          <div className="flex gap-2 shrink-0">
+            <button
+              onClick={copyCode}
+              className="flex-1 sm:flex-none px-3 py-2 text-xs rounded-lg bg-slate-800 border border-slate-700/60 text-slate-300 hover:bg-slate-700 transition-colors"
+            >
+              {copied ? '✓ Copied' : 'Copy'}
+            </button>
+            <button
+              onClick={regenerate}
+              disabled={regenerating}
+              className="flex-1 sm:flex-none px-3 py-2 text-xs rounded-lg bg-slate-800 border border-slate-700/60 text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors disabled:opacity-40"
+              title="Generate a new code — the old one stops working immediately"
+            >
+              {regenerating ? 'Generating…' : '↺ Regenerate'}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -136,48 +138,48 @@ function AdminPanel({ currentUserId }: { currentUserId: number }) {
             {users.map(user => (
               <div
                 key={user.id}
-                className="flex items-center justify-between py-2 px-3 rounded-lg bg-slate-800/40 border border-slate-700/30 gap-3"
+                className="flex flex-col sm:flex-row sm:items-center sm:justify-between py-2 px-3 rounded-lg bg-slate-800/40 border border-slate-700/30 gap-2"
               >
-                <div className="flex items-center gap-3 min-w-0">
+                {/* Name + date */}
+                <div className="flex items-center gap-2 min-w-0">
                   <span className="text-sm text-slate-200 font-medium truncate">@{user.username}</span>
                   <span className="text-xs text-slate-600 shrink-0">{formatDate(user.createdAt)}</span>
                 </div>
 
+                {/* Actions */}
                 <div className="flex items-center gap-2 shrink-0">
-                  {/* Role selector */}
                   {user.id === currentUserId ? (
                     <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded capitalize">
                       {user.role} (you)
                     </span>
                   ) : (
-                    <div className="flex rounded-lg border border-slate-700/60 overflow-hidden text-xs">
-                      {(['admin', 'contributor'] as const).map(r => (
-                        <button
-                          key={r}
-                          onClick={() => setRole(user.id, r)}
-                          disabled={user.role === r || roleLoading === user.id}
-                          className={`px-2.5 py-1 capitalize transition-colors disabled:cursor-default ${
-                            user.role === r
-                              ? r === 'admin'
-                                ? 'bg-emerald-600/20 text-emerald-400 font-semibold'
-                                : 'bg-slate-700/60 text-slate-300 font-semibold'
-                              : 'text-slate-500 hover:text-slate-300 hover:bg-slate-700/40'
-                          }`}
-                        >
-                          {r}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {user.id !== currentUserId && (
-                    <button
-                      onClick={() => deleteUser(user.id)}
-                      disabled={deletingId === user.id}
-                      className="text-xs text-red-500 hover:text-red-400 disabled:opacity-40 transition-colors"
-                    >
-                      {deletingId === user.id ? '…' : 'Remove'}
-                    </button>
+                    <>
+                      <div className="flex rounded-lg border border-slate-700/60 overflow-hidden text-xs">
+                        {(['admin', 'contributor'] as const).map(r => (
+                          <button
+                            key={r}
+                            onClick={() => setRole(user.id, r)}
+                            disabled={user.role === r || roleLoading === user.id}
+                            className={`px-2.5 py-1 capitalize transition-colors disabled:cursor-default ${
+                              user.role === r
+                                ? r === 'admin'
+                                  ? 'bg-emerald-600/20 text-emerald-400 font-semibold'
+                                  : 'bg-slate-700/60 text-slate-300 font-semibold'
+                                : 'text-slate-500 hover:text-slate-300 hover:bg-slate-700/40'
+                            }`}
+                          >
+                            {r}
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        onClick={() => deleteUser(user.id)}
+                        disabled={deletingId === user.id}
+                        className="text-xs text-red-500 hover:text-red-400 disabled:opacity-40 transition-colors shrink-0"
+                      >
+                        {deletingId === user.id ? '…' : 'Remove'}
+                      </button>
+                    </>
                   )}
                 </div>
               </div>

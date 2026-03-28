@@ -30,24 +30,34 @@ export async function GET(_: Request, { params }: { params: { projectSlug: strin
     ...online,
   ]))
 
+  const allPresence = await prisma.userPresence.findMany({
+    where: { projectId: project.id, username: { notIn: ['', 'Anonymous', 'anonymous'] } },
+  })
+  const readers = allPresence
+    .filter(u => u.lastReadMessageId != null)
+    .map(u => ({ username: u.username, lastReadMessageId: u.lastReadMessageId as number }))
+
   return NextResponse.json({
     online,
     all,
     contributors: contributors.map(contributor => contributor.username),
+    readers,
   })
 }
 
 export async function POST(request: Request, { params }: { params: { projectSlug: string } }) {
-  const { username } = await request.json()
+  const { username, lastReadMessageId } = await request.json()
   if (!username?.trim()) return NextResponse.json({ error: 'Missing username' }, { status: 400 })
 
   const project = await prisma.project.findUnique({ where: { slug: params.projectSlug } })
   if (!project) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
+  const readUpdate = typeof lastReadMessageId === 'number' ? { lastReadMessageId } : {}
+
   await prisma.userPresence.upsert({
     where: { projectId_username: { projectId: project.id, username } },
-    create: { projectId: project.id, username, lastSeen: new Date() },
-    update: { lastSeen: new Date() },
+    create: { projectId: project.id, username, lastSeen: new Date(), ...readUpdate },
+    update: { lastSeen: new Date(), ...readUpdate },
   })
 
   return NextResponse.json({ ok: true })

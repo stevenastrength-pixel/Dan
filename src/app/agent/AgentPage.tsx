@@ -43,6 +43,7 @@ export default function GlobalChatPage() {
   const [sending, setSending] = useState(false)
   const [thinking, setThinking] = useState(false)
   const [onlineUsers, setOnlineUsers] = useState<string[]>([])
+  const [readers, setReaders] = useState<{ username: string; lastReadMessageId: number }[]>([])
   const [hasMore, setHasMore] = useState(false)
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [ctxMenu, setCtxMenu] = useState<{ msg: GlobalMessage; x: number; y: number } | null>(null)
@@ -115,7 +116,8 @@ export default function GlobalChatPage() {
       anchorIdRef.current = null
       return
     }
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const el = scrollContainerRef.current
+    if (el) el.scrollTop = el.scrollHeight
   }, [messages, thinking, pendingFile])
 
   // Initial load
@@ -173,27 +175,28 @@ export default function GlobalChatPage() {
     return () => clearInterval(interval)
   }, [])
 
-  // Heartbeat — mark this user as online
+  // Heartbeat — mark this user as online and report last read message
   useEffect(() => {
     if (!username?.trim()) return
     const ping = () => {
+      const lastId = messages[messages.length - 1]?.id
       fetch('/api/global/presence', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username }),
+        body: JSON.stringify({ username, ...(lastId ? { lastReadMessageId: lastId } : {}) }),
       }).catch(() => {})
     }
     ping()
     const interval = setInterval(ping, 30000)
     return () => clearInterval(interval)
-  }, [username])
+  }, [username, messages])
 
   // Poll presence
   useEffect(() => {
     const fetchPresence = () => {
       fetch('/api/global/presence')
         .then(r => r.json())
-        .then(d => setOnlineUsers(d.online ?? []))
+        .then(d => { setOnlineUsers(d.online ?? []); setReaders(d.readers ?? []) })
         .catch(() => {})
     }
     fetchPresence()
@@ -401,36 +404,48 @@ export default function GlobalChatPage() {
           const isDaneel = msg.author === DANEEL
           const raw = msg.createdAt.endsWith('Z') ? msg.createdAt : msg.createdAt + 'Z'
           const time = new Date(raw).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          const seenBy = readers.filter(r => r.lastReadMessageId === msg.id && r.username !== msg.author && r.username !== username)
           return (
-            <div key={msg.id} id={`msg-${msg.id}`} className={`flex gap-2 items-end ${isMe ? 'justify-end' : 'justify-start'}`}>
-              {!isMe && <Avatar name={msg.author} />}
-              <div
-                onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ msg, x: e.clientX, y: e.clientY }) }}
-                className={`max-w-[75%] px-3.5 py-2 text-sm shadow-sm cursor-default select-text ${
-                  isMe
-                    ? 'bg-[#effdde] dark:bg-[#2b5278] text-slate-800 dark:text-slate-100 rounded-2xl rounded-tr-sm'
-                    : 'bg-white dark:bg-[#182533] text-slate-800 dark:text-slate-100 rounded-2xl rounded-tl-sm'
-                }`}>
-                {!isMe && (
-                  <p className={`text-xs mb-0.5 font-semibold ${isDaneel ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`}>
-                    {msg.author}
-                  </p>
-                )}
-                {msg.imageUrl && (msg.fileName && !msg.fileName.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
-                  <a href={msg.imageUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 mb-1 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-700/60 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-sm text-slate-700 dark:text-slate-200 max-w-xs">
-                    <span className="text-lg shrink-0">📄</span>
-                    <span className="truncate font-medium">{msg.fileName}</span>
-                    <span className="text-xs text-slate-400 dark:text-slate-500 shrink-0 ml-auto">↓</span>
-                  </a>
-                ) : (
-                  <img src={msg.imageUrl} alt={msg.fileName ?? 'attachment'} className="rounded-xl max-w-full max-h-64 object-contain mb-1 cursor-pointer" onClick={() => window.open(msg.imageUrl!, '_blank')} />
-                ))}
-                <div className="flex items-end gap-3">
-                  {msg.content && <p className="whitespace-pre-wrap leading-relaxed flex-1">{renderContent(msg.content)}</p>}
-                  <span className="text-[10px] text-slate-400 dark:text-slate-500 shrink-0 leading-none mb-0.5">{time}</span>
+            <div key={msg.id} id={`msg-${msg.id}`} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+              <div className={`flex gap-2 items-end ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
+                {!isMe && <Avatar name={msg.author} />}
+                <div
+                  onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ msg, x: e.clientX, y: e.clientY }) }}
+                  className={`max-w-[75%] px-3.5 py-2 text-sm shadow-sm cursor-default select-text ${
+                    isMe
+                      ? 'bg-[#effdde] dark:bg-[#2b5278] text-slate-800 dark:text-slate-100 rounded-2xl rounded-tr-sm'
+                      : 'bg-white dark:bg-[#182533] text-slate-800 dark:text-slate-100 rounded-2xl rounded-tl-sm'
+                  }`}>
+                  {!isMe && (
+                    <p className={`text-xs mb-0.5 font-semibold ${isDaneel ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`}>
+                      {msg.author}
+                    </p>
+                  )}
+                  {msg.imageUrl && (msg.fileName && !msg.fileName.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
+                    <a href={msg.imageUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 mb-1 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-700/60 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-sm text-slate-700 dark:text-slate-200 max-w-xs">
+                      <span className="text-lg shrink-0">📄</span>
+                      <span className="truncate font-medium">{msg.fileName}</span>
+                      <span className="text-xs text-slate-400 dark:text-slate-500 shrink-0 ml-auto">↓</span>
+                    </a>
+                  ) : (
+                    <img src={msg.imageUrl} alt={msg.fileName ?? 'attachment'} className="rounded-xl max-w-full max-h-64 object-contain mb-1 cursor-pointer" onClick={() => window.open(msg.imageUrl!, '_blank')} />
+                  ))}
+                  <div className="flex items-end gap-3">
+                    {msg.content && <p className="whitespace-pre-wrap leading-relaxed flex-1">{renderContent(msg.content)}</p>}
+                    <span className="text-[10px] text-slate-400 dark:text-slate-500 shrink-0 leading-none mb-0.5">{time}</span>
+                  </div>
                 </div>
+                {isMe && <Avatar name={msg.author} />}
               </div>
-              {isMe && <Avatar name={msg.author} />}
+              {seenBy.length > 0 && (
+                <div className="flex gap-0.5 mt-0.5 px-1">
+                  {seenBy.map(r => (
+                    <div key={r.username} title={`Seen by ${r.username}`} className="w-3.5 h-3.5 rounded-full bg-slate-400 dark:bg-slate-500 flex items-center justify-center">
+                      <span className="text-[7px] font-bold text-white leading-none">{r.username[0].toUpperCase()}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )
         })}
@@ -509,7 +524,7 @@ export default function GlobalChatPage() {
             </div>
           </div>
         )}
-        <input ref={fileInputRef} type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) attachFile(f); e.target.value = '' }} />
+        <input ref={fileInputRef} type="file" accept="*/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) attachFile(f); e.target.value = '' }} />
         <div className="flex gap-2">
           <button
             onClick={() => fileInputRef.current?.click()}
