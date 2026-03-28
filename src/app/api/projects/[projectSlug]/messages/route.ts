@@ -155,17 +155,19 @@ Chapter IDs are listed in the Chapters section below — use them directly, do N
 Use create_chapter to create a new chapter. Use get_chapter to read a chapter before editing. Use patch_chapter for targeted edits. Use update_chapter only for full rewrites.
 
 ## IMPORTANT: Managing characters
-Character IDs are listed in the Characters section below. Use find_character_by_name if you need to resolve a name to an id or confirm whether a character already exists. Use create_character to add someone new to the project database. Use get_character before updating an existing character so you preserve important details. Use update_character to replace the stored fields for a character when asked to sync the database with the Story Bible or other canon documents. Use delete_character only when the user clearly asks to remove a character record from the database.
+Character IDs are listed in the Characters section below. Use find_character_by_name if you need to resolve a name to an id or confirm whether a character already exists. Use create_character to add someone new to the project database. Use get_character before updating an existing character so you preserve important details. Use update_character to replace the stored fields for a character when asked to sync the database with the Story Bible or other canon documents. Use delete_character only when the user clearly asks to remove a character record from the database. When importing or syncing multiple characters from the Story Bible, prefer sync_characters_batch so you can create/update the whole set in one tool call.
 
 ## IMPORTANT: Managing world entries
-World entry IDs are listed in the World Building section below. Use find_world_entry_by_name if you need to resolve a name to an id or confirm whether an entry already exists. Use create_world_entry to add a new location, faction, concept, item, or event to the project database. Use get_world_entry before updating an existing entry so you preserve important details. Use update_world_entry to replace the stored fields for an entry when syncing from the Story Bible or other canon documents. Use delete_world_entry only when the user clearly asks to remove a world entry from the database.
+World entry IDs are listed in the World Building section below. Use find_world_entry_by_name if you need to resolve a name to an id or confirm whether an entry already exists. Use create_world_entry to add a new location, faction, concept, item, or event to the project database. Use get_world_entry before updating an existing entry so you preserve important details. Use update_world_entry to replace the stored fields for an entry when syncing from the Story Bible or other canon documents. Use delete_world_entry only when the user clearly asks to remove a world entry from the database. When importing or syncing multiple locations, factions, concepts, items, or events from the Story Bible, prefer sync_world_entries_batch so you can create/update the whole set in one tool call.
 
 ## CRITICAL: Creating polls
 When asked to create a poll, you MUST call the create_poll tool — do NOT write poll details in text without calling the tool. Writing about a poll in prose has no effect; only the tool call actually creates one. Call the tool first, then briefly confirm what you created.
 Use create_poll when the team faces a genuine creative decision — plot forks, character choices, world-building options. Keep options clear and mutually exclusive.
+When creating many polls from a list of open questions, prefer create_polls_batch.
 
 ## CRITICAL: Assigning tasks
 You MUST call the assign_task tool to assign tasks. Writing "✓ Assigned task" or any similar text in prose does NOT create a task — it is invisible to the system and the user will never see it in their task queue. The ONLY way to create a task is to call the assign_task tool. If you describe a task without calling the tool, you have failed. Call the tool first, then confirm briefly in text.
+When creating many tasks from a document or checklist, prefer assign_tasks_batch.
 
 When a user reports completing a task, do NOT automatically assign them a new one unless (a) explicitly asked to, or (b) their queue is empty AND they ask for more work.
 
@@ -364,6 +366,32 @@ ${worldList}`
       },
     },
     {
+      name: 'sync_characters_batch',
+      description: 'Create or update multiple character records in one call. Prefer this when importing or syncing a cast from the Story Bible.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          entries: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string' },
+                role: { type: 'string' },
+                description: { type: 'string' },
+                notes: { type: 'string' },
+                traits: { type: 'array', items: { type: 'string' } },
+              },
+              required: ['name'],
+            },
+            description: 'The character records to create or update by name.',
+          },
+          summary: { type: 'string', description: 'One or two sentences describing what was synced.' },
+        },
+        required: ['entries', 'summary'],
+      },
+    },
+    {
       name: 'create_world_entry',
       description: 'Create a new world-building entry in the project database.',
       input_schema: {
@@ -428,6 +456,31 @@ ${worldList}`
       },
     },
     {
+      name: 'sync_world_entries_batch',
+      description: 'Create or update multiple world entries in one call. Prefer this when importing or syncing locations, factions, concepts, items, or events from the Story Bible.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          entries: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string' },
+                type: { type: 'string' },
+                description: { type: 'string' },
+                notes: { type: 'string' },
+              },
+              required: ['name'],
+            },
+            description: 'The world entries to create or update by name.',
+          },
+          summary: { type: 'string', description: 'One or two sentences describing what was synced.' },
+        },
+        required: ['entries', 'summary'],
+      },
+    },
+    {
       name: 'get_chapter',
       description: 'Read the full current content of a chapter before editing it. Always call this before patch_chapter or update_chapter.',
       input_schema: {
@@ -488,6 +541,30 @@ ${worldList}`
       },
     },
     {
+      name: 'assign_tasks_batch',
+      description: 'Create multiple task assignments in one call. Prefer this when turning a list of open items into tasks.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          tasks: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                assignedTo: { type: 'string' },
+                title: { type: 'string' },
+                description: { type: 'string' },
+              },
+              required: ['assignedTo', 'title'],
+            },
+            description: 'The tasks to create.',
+          },
+          summary: { type: 'string', description: 'One or two sentences describing what was assigned.' },
+        },
+        required: ['tasks', 'summary'],
+      },
+    },
+    {
       name: 'get_tasks',
       description: 'Get the current task list for the project, optionally filtered by user or status.',
       input_schema: {
@@ -515,6 +592,29 @@ ${worldList}`
           },
         },
         required: ['question', 'options'],
+      },
+    },
+    {
+      name: 'create_polls_batch',
+      description: 'Create multiple polls in one call. Prefer this when turning a list of open questions into polls.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          polls: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                question: { type: 'string' },
+                options: { type: 'array', items: { type: 'string' } },
+              },
+              required: ['question', 'options'],
+            },
+            description: 'The polls to create.',
+          },
+          summary: { type: 'string', description: 'One or two sentences describing what was created.' },
+        },
+        required: ['polls', 'summary'],
       },
     },
   ]
@@ -666,6 +766,56 @@ ${worldList}`
       await prisma.character.delete({ where: { id } })
       return `Deleted character "${character.name}". ${summary}`
     }
+    if (name === 'sync_characters_batch') {
+      const { entries, summary } = input as {
+        entries: Array<{
+          name: string
+          role?: string
+          description?: string
+          notes?: string
+          traits?: string[]
+        }>
+        summary: string
+      }
+      if (!Array.isArray(entries) || entries.length === 0) return 'Error: entries must contain at least one character.'
+
+      let created = 0
+      let updated = 0
+      for (const entry of entries) {
+        const characterName = entry.name?.trim()
+        if (!characterName) continue
+
+        const existingCharacter = await prisma.character.findFirst({
+          where: { projectId: project.id, name: characterName },
+        })
+
+        const data = {
+          name: characterName,
+          role: entry.role?.trim() || 'Supporting',
+          description: entry.description?.trim() ?? '',
+          notes: entry.notes?.trim() ?? '',
+          traits: JSON.stringify((entry.traits ?? []).map((trait) => String(trait).trim()).filter(Boolean)),
+        }
+
+        if (existingCharacter) {
+          await prisma.character.update({
+            where: { id: existingCharacter.id },
+            data,
+          })
+          updated++
+        } else {
+          await prisma.character.create({
+            data: {
+              projectId: project.id,
+              ...data,
+            },
+          })
+          created++
+        }
+      }
+
+      return `Character sync complete. Created ${created}, updated ${updated}. ${summary}`
+    }
     if (name === 'create_world_entry') {
       const { name, type, description, notes } = input as {
         name: string
@@ -751,6 +901,54 @@ ${worldList}`
       await prisma.worldEntry.delete({ where: { id } })
       return `Deleted world entry "${entry.name}". ${summary}`
     }
+    if (name === 'sync_world_entries_batch') {
+      const { entries, summary } = input as {
+        entries: Array<{
+          name: string
+          type?: string
+          description?: string
+          notes?: string
+        }>
+        summary: string
+      }
+      if (!Array.isArray(entries) || entries.length === 0) return 'Error: entries must contain at least one world entry.'
+
+      let created = 0
+      let updated = 0
+      for (const entry of entries) {
+        const entryName = entry.name?.trim()
+        if (!entryName) continue
+
+        const existingEntry = await prisma.worldEntry.findFirst({
+          where: { projectId: project.id, name: entryName },
+        })
+
+        const data = {
+          name: entryName,
+          type: entry.type?.trim() || 'Location',
+          description: entry.description?.trim() ?? '',
+          notes: entry.notes?.trim() ?? '',
+        }
+
+        if (existingEntry) {
+          await prisma.worldEntry.update({
+            where: { id: existingEntry.id },
+            data,
+          })
+          updated++
+        } else {
+          await prisma.worldEntry.create({
+            data: {
+              projectId: project.id,
+              ...data,
+            },
+          })
+          created++
+        }
+      }
+
+      return `World entry sync complete. Created ${created}, updated ${updated}. ${summary}`
+    }
     if (name === 'get_chapter') {
       const { id } = input as { id: string }
       const chapter = await prisma.chapter.findUnique({ where: { id } })
@@ -808,6 +1006,31 @@ ${worldList}`
         return `Error creating task: ${err instanceof Error ? err.message : String(err)}`
       }
     }
+    if (name === 'assign_tasks_batch') {
+      const { tasks, summary } = input as {
+        tasks: Array<{ assignedTo: string; title: string; description?: string }>
+        summary: string
+      }
+      if (!Array.isArray(tasks) || tasks.length === 0) return 'Error: tasks must contain at least one task.'
+
+      let created = 0
+      for (const task of tasks) {
+        const assignedTo = task.assignedTo?.trim()
+        const title = task.title?.trim()
+        if (!assignedTo || !title) continue
+        await prisma.task.create({
+          data: {
+            projectId: project.id,
+            assignedTo,
+            title,
+            description: task.description?.trim() ?? '',
+            createdBy: 'Daneel',
+          },
+        })
+        created++
+      }
+      return `Task batch complete. Created ${created} task${created === 1 ? '' : 's'}. ${summary}`
+    }
     if (name === 'create_poll') {
       const { question, options } = input as { question: string; options: string[] }
       console.log('[create_poll] called with:', { question, options, projectId: project.id })
@@ -827,6 +1050,32 @@ ${worldList}`
       console.log('[create_poll] created:', newPoll.id)
       createdPoll = { ...newPoll, options: JSON.parse(newPoll.options) }
       return `Poll created: "${question.trim()}" with options: ${valid.join(', ')}`
+    }
+    if (name === 'create_polls_batch') {
+      const { polls, summary } = input as {
+        polls: Array<{ question: string; options: string[] }>
+        summary: string
+      }
+      if (!Array.isArray(polls) || polls.length === 0) return 'Error: polls must contain at least one poll.'
+
+      let created = 0
+      for (const poll of polls) {
+        const question = poll.question?.trim()
+        const valid = (poll.options ?? []).filter((option) => option?.trim()).map((option) => option.trim())
+        if (!question || valid.length < 2 || valid.length > 6) continue
+        const newPoll = await prisma.poll.create({
+          data: {
+            projectId: project.id,
+            question,
+            options: JSON.stringify(valid),
+            createdBy: 'Daneel',
+          },
+          include: { votes: true },
+        })
+        createdPoll = { ...newPoll, options: JSON.parse(newPoll.options) }
+        created++
+      }
+      return `Poll batch complete. Created ${created} poll${created === 1 ? '' : 's'}. ${summary}`
     }
     return `Unknown tool: ${name}`
   }
@@ -872,17 +1121,25 @@ ${worldList}`
       toolCallsMade = result.toolCalls
     }
 
-    pollCreated = toolCallsMade.some(tc => tc.name === 'create_poll')
+    pollCreated = toolCallsMade.some(tc => tc.name === 'create_poll' || tc.name === 'create_polls_batch')
     const editLog = toolCallsMade
-      .filter(tc => ['update_document', 'patch_document', 'create_chapter', 'create_character', 'update_character', 'delete_character', 'create_world_entry', 'update_world_entry', 'delete_world_entry', 'update_chapter', 'patch_chapter', 'create_poll', 'assign_task'].includes(tc.name))
+      .filter(tc => ['update_document', 'patch_document', 'create_chapter', 'create_character', 'update_character', 'delete_character', 'sync_characters_batch', 'create_world_entry', 'update_world_entry', 'delete_world_entry', 'sync_world_entries_batch', 'update_chapter', 'patch_chapter', 'create_poll', 'create_polls_batch', 'assign_task', 'assign_tasks_batch'].includes(tc.name))
       .map(tc => {
         if (tc.name === 'create_poll') {
           const { question, options } = tc.input as { question: string; options: string[] }
           return `📊 Created poll: **"${question}"** — ${options.join(' / ')}`
         }
+        if (tc.name === 'create_polls_batch') {
+          const polls = (tc.input as { polls: Array<{ question: string }>; summary: string }).polls ?? []
+          return `📊 Created ${polls.length} poll${polls.length === 1 ? '' : 's'}: ${(tc.input as { summary: string }).summary}`
+        }
         if (tc.name === 'assign_task') {
           const { assignedTo, title } = tc.input as { assignedTo: string; title: string }
           return `✓ Assigned task to @${assignedTo}: **"${title}"**`
+        }
+        if (tc.name === 'assign_tasks_batch') {
+          const tasks = (tc.input as { tasks: Array<{ title: string }>; summary: string }).tasks ?? []
+          return `✓ Assigned ${tasks.length} task${tasks.length === 1 ? '' : 's'}: ${(tc.input as { summary: string }).summary}`
         }
         if (tc.name === 'create_chapter') {
           return `📖 Created chapter **"${(tc.input as { title: string }).title}"**`
@@ -897,6 +1154,10 @@ ${worldList}`
           const deleted = characters.find(c => c.id === (tc.input as { id: string }).id)
           return `👤 Removed character **"${deleted?.name ?? (tc.input as { id: string }).id}"**: ${(tc.input as { summary: string }).summary}`
         }
+        if (tc.name === 'sync_characters_batch') {
+          const entries = (tc.input as { entries: Array<{ name: string }>; summary: string }).entries ?? []
+          return `👥 Synced ${entries.length} character record${entries.length === 1 ? '' : 's'}: ${(tc.input as { summary: string }).summary}`
+        }
         if (tc.name === 'create_world_entry') {
           return `🌍 Added world entry **"${(tc.input as { name: string }).name}"**`
         }
@@ -906,6 +1167,10 @@ ${worldList}`
         if (tc.name === 'delete_world_entry') {
           const deleted = worldEntries.find(w => w.id === (tc.input as { id: string }).id)
           return `🌍 Removed world entry **"${deleted?.name ?? (tc.input as { id: string }).id}"**: ${(tc.input as { summary: string }).summary}`
+        }
+        if (tc.name === 'sync_world_entries_batch') {
+          const entries = (tc.input as { entries: Array<{ name: string }>; summary: string }).entries ?? []
+          return `🌍 Synced ${entries.length} ${entries.length === 1 ? 'world entry' : 'world entries'}: ${(tc.input as { summary: string }).summary}`
         }
         if (tc.name === 'update_chapter' || tc.name === 'patch_chapter') {
           const chapter = chapters.find(c => c.id === (tc.input as { id: string }).id)
