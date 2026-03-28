@@ -4,6 +4,22 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { streamAIChat, streamOpenClaw, callAnthropicWithTools, callOpenAIWithTools, callOpenClawWithTools, type OpenClawContext, type ToolDef, type ToolCall } from '@/lib/ai'
 import { getUserFromRequest } from '@/lib/auth'
+import { readFile } from 'fs/promises'
+
+async function loadContextFiles(contextFilesJson: string): Promise<Array<{ key: string; title: string; content: string }>> {
+  let paths: string[] = []
+  try { paths = JSON.parse(contextFilesJson) } catch { return [] }
+  const docs: Array<{ key: string; title: string; content: string }> = []
+  for (let i = 0; i < paths.length; i++) {
+    const filePath = paths[i]
+    if (!filePath.trim()) continue
+    try {
+      const content = await readFile(filePath.trim(), 'utf8')
+      docs.push({ key: `workspace_context_${i}`, title: filePath.trim().split('/').pop() ?? 'Workspace Context', content })
+    } catch { /* skip unreadable files */ }
+  }
+  return docs
+}
 
 export const maxDuration = 120 // seconds — allow tool-use loop time
 
@@ -91,6 +107,7 @@ export async function POST(
   ])
 
   const provider = (settings?.aiProvider ?? 'anthropic') as 'anthropic' | 'openai' | 'openclaw'
+  const contextDocs = await loadContextFiles(settings?.contextFiles ?? '[]')
 
   if (provider === 'openclaw' && !settings?.openClawBaseUrl?.trim()) {
     const errMsg = await prisma.projectMessage.create({
@@ -126,7 +143,7 @@ export async function POST(
     ? Object.entries(grouped).map(([type, items]) => `### ${type}s\n${items.join('\n')}`).join('\n\n')
     : 'No world entries defined yet.'
 
-  const sorted = [...documents].sort((a, b) => {
+  const sorted = [...contextDocs, ...documents].sort((a, b) => {
     const ai = CORE_DOC_ORDER.indexOf(a.key), bi = CORE_DOC_ORDER.indexOf(b.key)
     if (ai !== -1 && bi !== -1) return ai - bi
     if (ai !== -1) return -1
