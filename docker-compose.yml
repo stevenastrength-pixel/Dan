@@ -6,6 +6,8 @@ services:
     volumes:
       # Persist the SQLite database across container restarts and updates
       - dan-data:/app/data
+      # Bind-mount the OpenClaw workspace so context files are always current
+      - /home/node/.openclaw/workspace:/app/workspace
     environment:
       - DATABASE_URL=file:/app/data/dan.db
       - NODE_ENV=production
