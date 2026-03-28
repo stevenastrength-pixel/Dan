@@ -108,11 +108,12 @@ export async function POST(request: Request) {
   }
 
   const contextSection = await loadContextFiles(settings?.contextFiles ?? '[]')
-  const systemPrompt = buildAgentSystemPrompt({
+  const builtPrompt = buildAgentSystemPrompt({
     characters,
     worldEntries,
     styleGuide: settings?.styleGuide ?? '',
-  }) + (contextSection ? `\n\n${contextSection}` : '')
+  })
+  const systemPrompt = contextSection ? `${contextSection}\n\n---\n\n${builtPrompt}` : builtPrompt
 
   const openClawContext: OpenClawContext = {
     project: { id: 0, slug: 'global-agent', name: 'Global Agent' },
