@@ -610,10 +610,11 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
     if (!username?.trim()) return
     const ping = () => {
       const lastId = messages[messages.length - 1]?.id
+      const realLastId = lastId && lastId > 0 ? lastId : undefined
       fetch(`/api/projects/${projectSlug}/presence`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, ...(lastId ? { lastReadMessageId: lastId } : {}) }),
+        body: JSON.stringify({ username, ...(realLastId ? { lastReadMessageId: realLastId } : {}) }),
       }).catch(() => {})
     }
     ping()

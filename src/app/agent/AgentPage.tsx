@@ -180,10 +180,11 @@ export default function GlobalChatPage() {
     if (!username?.trim()) return
     const ping = () => {
       const lastId = messages[messages.length - 1]?.id
+      const realLastId = lastId && lastId > 0 ? lastId : undefined
       fetch('/api/global/presence', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, ...(lastId ? { lastReadMessageId: lastId } : {}) }),
+        body: JSON.stringify({ username, ...(realLastId ? { lastReadMessageId: realLastId } : {}) }),
       }).catch(() => {})
     }
     ping()
