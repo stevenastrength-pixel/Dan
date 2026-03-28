@@ -32,6 +32,7 @@ export async function GET() {
     openClawApiKey: '',
     openClawApiKeySet: false,
     openClawAgentId: '',
+    contextFiles: '[]',
   })
 }
 
@@ -60,6 +61,7 @@ export async function PUT(request: Request) {
       openClawBaseUrl: body.openClawBaseUrl ?? '',
       openClawApiKey: newOpenClawApiKey,
       openClawAgentId: body.openClawAgentId ?? '',
+      contextFiles: body.contextFiles ?? '[]',
     },
     create: {
       id: 1,
@@ -70,6 +72,7 @@ export async function PUT(request: Request) {
       openClawBaseUrl: body.openClawBaseUrl ?? '',
       openClawApiKey: newOpenClawApiKey,
       openClawAgentId: body.openClawAgentId ?? '',
+      contextFiles: body.contextFiles ?? '[]',
     },
   })
 

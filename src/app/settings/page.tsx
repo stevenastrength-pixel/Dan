@@ -13,6 +13,7 @@ type AppSettings = {
   openClawApiKey: string
   openClawApiKeySet: boolean
   openClawAgentId: string
+  contextFiles: string // JSON array of file paths
 }
 
 type User = {
@@ -203,6 +204,7 @@ export default function SettingsPage() {
     openClawApiKey: '',
     openClawApiKeySet: false,
     openClawAgentId: '',
+    contextFiles: '[]',
   })
   const [loading, setLoading] = useState(true)
   const [saved, setSaved] = useState(false)
@@ -434,6 +436,51 @@ export default function SettingsPage() {
             </div>
           )}
         </div>
+
+        {/* ── Workspace Context Files ──────────────────────── */}
+        {(() => {
+          let paths: string[] = []
+          try { paths = JSON.parse(form.contextFiles) } catch {}
+          const setPaths = (next: string[]) => setForm({ ...form, contextFiles: JSON.stringify(next) })
+          return (
+            <div className="rounded-xl border border-slate-800/60 bg-slate-900/60 p-6">
+              <h2 className="text-sm font-semibold text-slate-300 mb-1">Workspace Context Files</h2>
+              <p className="text-xs text-slate-600 mb-4">
+                File paths loaded into the agent&apos;s system prompt at the start of every session. Use absolute paths (e.g. <code className="bg-slate-800 px-1 rounded text-slate-400">/app/data/CONTEXT.md</code>). Files that can&apos;t be read are silently skipped.
+              </p>
+              <div className="space-y-2">
+                {paths.map((p, i) => (
+                  <div key={i} className="flex gap-2 items-center">
+                    <input
+                      type="text"
+                      value={p}
+                      onChange={e => {
+                        const next = [...paths]
+                        next[i] = e.target.value
+                        setPaths(next)
+                      }}
+                      placeholder="/absolute/path/to/CONTEXT.md"
+                      className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 font-mono"
+                    />
+                    <button
+                      onClick={() => setPaths(paths.filter((_, j) => j !== i))}
+                      className="text-slate-600 hover:text-red-400 transition-colors text-lg leading-none px-1"
+                      title="Remove"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+                <button
+                  onClick={() => setPaths([...paths, ''])}
+                  className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                >
+                  + Add file path
+                </button>
+              </div>
+            </div>
+          )
+        })()}
 
         {/* ── Admin panel (admins only) ────────────────────── */}
         {currentUser?.isAdmin && <AdminPanel currentUserId={currentUser.id} />}

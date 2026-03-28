@@ -167,6 +167,7 @@ model Settings {
   openClawBaseUrl String   @default("")
   openClawApiKey  String   @default("")
   openClawAgentId String   @default("")
+  contextFiles    String   @default("[]") // JSON array of file paths injected into agent system prompt
   updatedAt       DateTime @updatedAt
 }
 

@@ -3,6 +3,28 @@ export const dynamic = 'force-dynamic'
 import { prisma } from '@/lib/prisma'
 import { streamAIChat, streamOpenClaw, type OpenClawContext } from '@/lib/ai'
 import { getUserFromRequest } from '@/lib/auth'
+import { readFile } from 'fs/promises'
+
+const MAX_CONTEXT_CHARS = 50_000
+
+async function loadContextFiles(contextFilesJson: string): Promise<string> {
+  let paths: string[] = []
+  try { paths = JSON.parse(contextFilesJson) } catch { return '' }
+
+  const parts: string[] = []
+  let total = 0
+  for (const filePath of paths) {
+    if (!filePath.trim()) continue
+    try {
+      const content = await readFile(filePath.trim(), 'utf8')
+      const chunk = content.slice(0, MAX_CONTEXT_CHARS - total)
+      parts.push(`### ${filePath.trim()}\n${chunk}`)
+      total += chunk.length
+      if (total >= MAX_CONTEXT_CHARS) break
+    } catch { /* skip unreadable files */ }
+  }
+  return parts.length > 0 ? `## Workspace Context\n\n${parts.join('\n\n---\n\n')}` : ''
+}
 
 function buildAgentSystemPrompt(params: {
   characters: Array<{ name: string; role: string; description: string; traits: string }>
@@ -85,11 +107,12 @@ export async function POST(request: Request) {
     )
   }
 
+  const contextSection = await loadContextFiles(settings?.contextFiles ?? '[]')
   const systemPrompt = buildAgentSystemPrompt({
     characters,
     worldEntries,
     styleGuide: settings?.styleGuide ?? '',
-  })
+  }) + (contextSection ? `\n\n${contextSection}` : '')
 
   const openClawContext: OpenClawContext = {
     project: { id: 0, slug: 'global-agent', name: 'Global Agent' },
