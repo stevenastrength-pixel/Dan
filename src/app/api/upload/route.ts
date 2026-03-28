@@ -8,7 +8,7 @@ import { randomUUID } from 'crypto'
 const MAX_BYTES = 50 * 1024 * 1024       // 50 MB per file
 const STORAGE_LIMIT = 1024 * 1024 * 1024 // 1 GB total
 
-const UPLOADS_DIR = join(process.cwd(), 'public', 'uploads')
+const UPLOADS_DIR = join(process.cwd(), 'data', 'uploads')
 
 async function ensureUploadsDir() {
   await mkdir(UPLOADS_DIR, { recursive: true })
@@ -47,5 +47,5 @@ export async function POST(request: Request) {
 
   await pruneUploads()
 
-  return NextResponse.json({ url: `/uploads/${filename}`, name: originalName })
+  return NextResponse.json({ url: `/api/uploads/${filename}`, name: originalName })
 }
