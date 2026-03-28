@@ -12,6 +12,7 @@ services:
       - DATABASE_URL=file:/app/data/dan.db
       - NODE_ENV=production
       - JWT_SECRET=${JWT_SECRET:-change-this-to-a-long-random-secret}
+      - OPENCLAW_DEBUG_LOGS=1
     restart: unless-stopped
 
 volumes:
