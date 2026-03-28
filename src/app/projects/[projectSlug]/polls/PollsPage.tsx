@@ -18,9 +18,9 @@ function timeAgo(iso: string) {
   return `${Math.floor(hrs / 24)}d ago`
 }
 
-function PollCard({ poll, username, onVote, onClose, onDelete, onlineUsers, isAdmin }: {
+function PollCard({ poll, username, onVote, onClose, onDelete, requiredVoters, isAdmin }: {
   poll: Poll; username: string; onVote: (idx: number) => void; onClose: () => void; onDelete: () => void
-  onlineUsers: string[]; isAdmin: boolean
+  requiredVoters: string[]; isAdmin: boolean
 }) {
   const myVote = poll.votes.find(v => v.voterName === username)
   const totalVotes = poll.votes.length
@@ -28,8 +28,8 @@ function PollCard({ poll, username, onVote, onClose, onDelete, onlineUsers, isAd
   const maxTally = Math.max(...tallies, 0)
   const isOpen = poll.status === 'OPEN'
   const voterNames = new Set(poll.votes.map(v => v.voterName))
-  const waitingOn = onlineUsers.filter(u => !voterNames.has(u))
-  const allVoted = waitingOn.length === 0 && onlineUsers.length > 0
+  const waitingOn = requiredVoters.filter(u => !voterNames.has(u))
+  const allVoted = waitingOn.length === 0 && requiredVoters.length > 0
   const canClose = allVoted || isAdmin
 
   return (
@@ -101,8 +101,8 @@ function PollCard({ poll, username, onVote, onClose, onDelete, onlineUsers, isAd
             </button>
           ) : (
             <div className="flex items-center justify-between text-xs text-slate-600">
-              <span>Waiting for votes…</span>
-              <span className="font-medium">{totalVotes}/{onlineUsers.length} voted</span>
+              <span>{requiredVoters.length === 0 ? 'No contributors registered yet.' : 'Waiting for votes…'}</span>
+              <span className="font-medium">{totalVotes}/{requiredVoters.length} voted</span>
             </div>
           )}
         </div>
@@ -115,7 +115,9 @@ export default function PollsPage({ project }: { project: { name: string; slug: 
   const [username, setUsername] = useState<string | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
   const [polls, setPolls] = useState<Poll[]>([])
-  const [onlineUsers, setOnlineUsers] = useState<string[]>([])
+  const [contributors, setContributors] = useState<string[]>([])
+  const [isContributor, setIsContributor] = useState(false)
+  const [joining, setJoining] = useState(false)
   const [showCreate, setShowCreate] = useState(false)
   const [question, setQuestion] = useState('')
   const [options, setOptions] = useState(['', ''])
@@ -142,12 +144,18 @@ export default function PollsPage({ project }: { project: { name: string; slug: 
   }, [fetchPolls])
 
   useEffect(() => {
-    const fetchPresence = () => {
-      fetch(`/api/projects/${project.slug}/presence`)
-        .then(r => r.json()).then(d => setOnlineUsers(d.online ?? [])).catch(() => {})
+    const fetchContributors = () => {
+      fetch(`/api/projects/${project.slug}/contributors`)
+        .then(r => r.ok ? r.json() : null)
+        .then(d => {
+          if (!d) return
+          setContributors(d.contributors ?? [])
+          setIsContributor(Boolean(d.isContributor))
+        })
+        .catch(() => {})
     }
-    fetchPresence()
-    const interval = setInterval(fetchPresence, 5000)
+    fetchContributors()
+    const interval = setInterval(fetchContributors, 10000)
     return () => clearInterval(interval)
   }, [project.slug])
 
@@ -177,11 +185,11 @@ export default function PollsPage({ project }: { project: { name: string; slug: 
     })
     broadcastRefresh()
 
-    // Auto-close if everyone online has now voted
+    // Auto-close if every registered contributor has now voted
     const poll = polls.find(p => p.id === pollId)
-    if (poll && onlineUsers.length > 0) {
+    if (poll && contributors.length > 0) {
       const votedNames = new Set([...poll.votes.map(v => v.voterName), username ?? ''])
-      const allVoted = onlineUsers.every(u => votedNames.has(u))
+      const allVoted = contributors.every(u => votedNames.has(u))
       if (allVoted) {
         await fetch(`/api/polls/${pollId}/close`, { method: 'POST' })
         const summary = buildSummary(poll, { voterName: username ?? '', optionIdx })
@@ -194,6 +202,21 @@ export default function PollsPage({ project }: { project: { name: string; slug: 
     }
 
     fetchPolls()
+  }
+
+  const joinProject = async () => {
+    setJoining(true)
+    try {
+      const res = await fetch(`/api/projects/${project.slug}/contributors`, { method: 'POST' })
+      if (!res.ok) return
+      setIsContributor(true)
+      setContributors(prev => {
+        if (!username || prev.includes(username)) return prev
+        return [...prev, username]
+      })
+    } finally {
+      setJoining(false)
+    }
   }
 
   const closePoll = async (pollId: number) => {
@@ -233,13 +256,32 @@ export default function PollsPage({ project }: { project: { name: string; slug: 
       <div className="px-6 py-4 border-b border-slate-800/60 flex items-center justify-between shrink-0">
         <div>
           <h1 className="text-sm font-semibold text-slate-200">{project.name}</h1>
-          <p className="text-xs text-slate-600">Polls</p>
+          <p className="text-xs text-slate-600">
+            Polls · {contributors.length} contributor{contributors.length === 1 ? '' : 's'}
+            {isContributor ? ' · You count toward completion' : ''}
+          </p>
         </div>
-        <button onClick={() => setShowCreate(v => !v)}
-          className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-medium hover:bg-emerald-500 transition-colors">
-          {showCreate ? 'Cancel' : '+ New Poll'}
-        </button>
+        <div className="flex items-center gap-2">
+          {!isContributor && username && (
+            <button onClick={joinProject} disabled={joining}
+              className="px-3 py-1.5 border border-emerald-500/40 text-emerald-300 bg-emerald-500/10 rounded-lg text-xs font-medium hover:bg-emerald-500/20 disabled:opacity-40 transition-colors">
+              {joining ? 'Joining…' : 'Join as Contributor'}
+            </button>
+          )}
+          <button onClick={() => setShowCreate(v => !v)}
+            className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-medium hover:bg-emerald-500 transition-colors">
+            {showCreate ? 'Cancel' : '+ New Poll'}
+          </button>
+        </div>
       </div>
+
+      {!isContributor && username && (
+        <div className="px-6 py-3 border-b border-slate-800/40 bg-amber-500/5">
+          <p className="text-xs text-amber-300">
+            You are not a registered contributor yet. Open polls will not wait for your vote until you join this project.
+          </p>
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto p-6">
         {showCreate && (
@@ -278,7 +320,7 @@ export default function PollsPage({ project }: { project: { name: string; slug: 
           {openPolls.map(p => (
             <PollCard key={p.id} poll={p} username={username ?? ''} onVote={idx => vote(p.id, idx)}
               onClose={() => closePoll(p.id)} onDelete={() => deletePoll(p.id)}
-              onlineUsers={onlineUsers} isAdmin={isAdmin} />
+              requiredVoters={contributors} isAdmin={isAdmin} />
           ))}
         </div>
 
@@ -293,7 +335,7 @@ export default function PollsPage({ project }: { project: { name: string; slug: 
                 {closedPolls.map(p => (
                   <PollCard key={p.id} poll={p} username={username ?? ''} onVote={() => {}}
                     onClose={() => {}} onDelete={() => deletePoll(p.id)}
-                    onlineUsers={[]} isAdmin={isAdmin} />
+                    requiredVoters={[]} isAdmin={isAdmin} />
                 ))}
               </div>
             )}

@@ -1039,6 +1039,9 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
   const [mounted, setMounted] = useState(false)
   const [username, setUsername] = useState<string | null>(null)
   const [authLoaded, setAuthLoaded] = useState(false)
+  const [contributors, setContributors] = useState<string[]>([])
+  const [isContributor, setIsContributor] = useState(false)
+  const [joiningContributor, setJoiningContributor] = useState(false)
   const [documents, setDocuments] = useState<ProjectDocument[]>([])
   const [toast, setToast] = useState<string | null>(null)
   const [reloading, setReloading] = useState(false)
@@ -1096,12 +1099,30 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
     if (res.ok) { setWorldEntries(await res.json()); setWorldLoaded(true) }
   }, [project.slug])
 
+  const fetchContributors = useCallback(() => {
+    fetch(`/api/projects/${project.slug}/contributors`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d) return
+        setContributors(d.contributors ?? [])
+        setIsContributor(Boolean(d.isContributor))
+      })
+      .catch(() => {})
+  }, [project.slug])
+
   useEffect(() => {
     fetchDocuments()
     fetchChapters()
     fetchCharacters()
     fetchWorld()
-  }, [fetchDocuments, fetchChapters, fetchCharacters, fetchWorld])
+    fetchContributors()
+  }, [fetchDocuments, fetchChapters, fetchCharacters, fetchWorld, fetchContributors])
+
+  useEffect(() => {
+    fetchContributors()
+    const interval = setInterval(fetchContributors, 10000)
+    return () => clearInterval(interval)
+  }, [fetchContributors])
 
   // Notification counts (pending tasks + unvoted polls)
   const fetchNotifications = useCallback(() => {
@@ -1165,6 +1186,26 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
     setReloading(false)
   }
 
+  const joinProjectAsContributor = async () => {
+    setJoiningContributor(true)
+    try {
+      const res = await fetch(`/api/projects/${project.slug}/contributors`, { method: 'POST' })
+      if (!res.ok) {
+        showToast('Could not join this project right now.')
+        return
+      }
+      setIsContributor(true)
+      setContributors(prev => {
+        if (!username || prev.includes(username)) return prev
+        return [...prev, username]
+      })
+      fetchNotifications()
+      showToast('You are now a registered contributor on this project.')
+    } finally {
+      setJoiningContributor(false)
+    }
+  }
+
   // Current item for editors
   const selectedChapter = view.type === 'chapter' ? chapters.find(c => c.id === view.id) ?? null : null
   const selectedCharacter = view.type === 'character' ? characters.find(c => c.id === view.id) ?? null : null
@@ -1186,6 +1227,9 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
         <button onClick={toggleNav} className="md:hidden w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors shrink-0 text-base">☰</button>
         <h1 className="text-sm font-semibold text-slate-200 truncate">{project.name}</h1>
         {username && <span className="text-xs text-slate-600 hidden sm:inline">— {username}</span>}
+        <span className="hidden md:inline text-xs text-slate-600">
+          {contributors.length} contributor{contributors.length === 1 ? '' : 's'}
+        </span>
         {clockTime && (() => {
           const is420 = /^(0?4|16):20/.test(clockTime)
           return (
@@ -1197,6 +1241,12 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
           )
         })()}
         <div className="ml-auto flex items-center gap-2 shrink-0">
+          {!isContributor && username && (
+            <button onClick={joinProjectAsContributor} disabled={joiningContributor}
+              className="hidden sm:flex px-3 py-1.5 items-center justify-center border border-emerald-500/40 rounded-lg text-xs font-medium text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors disabled:opacity-40">
+              {joiningContributor ? 'Joining…' : 'Join Project'}
+            </button>
+          )}
           <button onClick={reloadContext} disabled={reloading}
             className="w-8 h-8 sm:w-auto sm:h-auto sm:px-3 sm:py-1.5 flex items-center justify-center border border-slate-700 rounded-lg text-xs font-medium text-slate-400 hover:border-slate-600 hover:text-slate-300 transition-colors disabled:opacity-40">
             ↺<span className="hidden sm:inline ml-1">{reloading ? 'Reloading…' : 'Reload Context'}</span>
@@ -1217,6 +1267,17 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
 
       {/* Body */}
       <div className="flex flex-col flex-1 overflow-hidden">
+        {!isContributor && username && (
+          <div className="px-4 py-2 border-b border-amber-500/20 bg-amber-500/5 flex items-center gap-3 shrink-0">
+            <p className="text-xs text-amber-300 flex-1">
+              Register yourself as a contributor so polls stay open until you vote, even when you are offline.
+            </p>
+            <button onClick={joinProjectAsContributor} disabled={joiningContributor}
+              className="sm:hidden px-3 py-1.5 border border-emerald-500/40 rounded-lg text-xs font-medium text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors disabled:opacity-40">
+              {joiningContributor ? 'Joining…' : 'Join'}
+            </button>
+          </div>
+        )}
         {view.type === 'document' && selectedDoc && (
           <DocEditor key={selectedDoc.key} doc={selectedDoc} projectSlug={project.slug}
             onSaved={updated => { setDocuments(prev => prev.map(d => d.key === updated.key ? updated : d)); showToast(`"${updated.title}" saved.`) }}

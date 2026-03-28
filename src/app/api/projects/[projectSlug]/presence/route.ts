@@ -19,9 +19,21 @@ export async function GET(_: Request, { params }: { params: { projectSlug: strin
     where: { projectId: project.id, lastSeen: { gte: cutoff } },
   })
 
+  const contributors = await prisma.projectContributor.findMany({
+    where: { projectId: project.id },
+    orderBy: [{ joinedAt: 'asc' }, { username: 'asc' }],
+  })
+
+  const online = Array.from(new Set(recent.map(u => u.username)))
+  const all = Array.from(new Set([
+    ...contributors.map(contributor => contributor.username),
+    ...online,
+  ]))
+
   return NextResponse.json({
-    online: recent.map(u => u.username),
-    all: recent.map(u => u.username),
+    online,
+    all,
+    contributors: contributors.map(contributor => contributor.username),
   })
 }
 

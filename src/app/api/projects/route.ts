@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { getUserFromRequest } from '@/lib/auth'
 
 // ─── Default document templates ───────────────────────────────────────────────
 
@@ -277,6 +278,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const user = await getUserFromRequest(request)
   const body = await request.json()
   const { name, description } = body
 
@@ -297,6 +299,7 @@ export async function POST(request: Request) {
       name: name.trim(),
       slug,
       description: description?.trim() ?? '',
+      ...(user ? { contributors: { create: { username: user.username } } } : {}),
       documents: {
         create: getCoreDocsForProject(name.trim()),
       },

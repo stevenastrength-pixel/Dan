@@ -14,12 +14,17 @@ export async function GET(
   const project = await prisma.project.findUnique({ where: { slug: params.projectSlug } })
   if (!project) return NextResponse.json({ pendingPolls: 0, pendingTasks: 0 })
 
-  // Open polls the user hasn't voted on yet
-  const openPolls = await prisma.poll.findMany({
-    where: { projectId: project.id, status: 'OPEN' },
-    include: { votes: { where: { voterName: user.username } } },
+  const contributor = await prisma.projectContributor.findUnique({
+    where: { projectId_username: { projectId: project.id, username: user.username } },
   })
-  const pendingPolls = openPolls.filter(p => p.votes.length === 0).length
+
+  // Only registered contributors block poll completion and get poll reminders.
+  const pendingPolls = contributor
+    ? (await prisma.poll.findMany({
+        where: { projectId: project.id, status: 'OPEN' },
+        include: { votes: { where: { voterName: user.username } } },
+      })).filter(p => p.votes.length === 0).length
+    : 0
 
   // Tasks assigned to user that aren't done
   const pendingTasks = await prisma.task.count({
