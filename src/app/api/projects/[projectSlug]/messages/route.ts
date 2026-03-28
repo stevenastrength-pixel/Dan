@@ -225,7 +225,7 @@ ${worldList}`
     characters: characters.map(c => ({ name: c.name, role: c.role, description: c.description, notes: c.notes })),
     worldEntries: worldEntries.map(w => ({ name: w.name, type: w.type, description: w.description })),
     styleGuide: documents.find(d => d.key === 'style_guide')?.content ?? '',
-    sessionKey: requestingUser?.openClawSessionKey ? `${requestingUser.openClawSessionKey}-${project.slug}${project.sessionNonce ? `-${project.sessionNonce}` : ''}` : undefined,
+    sessionKey: `${requestingUser?.openClawSessionKey ?? 'dan'}-${project.slug}${project.sessionNonce ? `-${project.sessionNonce}` : ''}`,
   }
 
   // ── Define tools available to Daneel ─────────────────────────────────────
