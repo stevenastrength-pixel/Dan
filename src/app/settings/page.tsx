@@ -211,6 +211,22 @@ export default function SettingsPage() {
   const [currentUser, setCurrentUser] = useState<{ id: number; isAdmin: boolean } | null>(null)
   const [testState, setTestState] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle')
   const [testError, setTestError] = useState('')
+  const [fileChecks, setFileChecks] = useState<Record<number, 'idle' | 'checking' | 'ok' | 'fail'>>({})
+
+  const verifyContextFile = async (path: string, index: number) => {
+    setFileChecks(prev => ({ ...prev, [index]: 'checking' }))
+    try {
+      const res = await fetch('/api/settings/verify-context-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path }),
+      })
+      const data = await res.json()
+      setFileChecks(prev => ({ ...prev, [index]: data.ok ? 'ok' : 'fail' }))
+    } catch {
+      setFileChecks(prev => ({ ...prev, [index]: 'fail' }))
+    }
+  }
 
   useEffect(() => {
     Promise.all([
@@ -449,28 +465,46 @@ export default function SettingsPage() {
                 File paths loaded into the agent&apos;s system prompt at the start of every session. Use absolute paths (e.g. <code className="bg-slate-800 px-1 rounded text-slate-400">/app/data/CONTEXT.md</code>). Files that can&apos;t be read are silently skipped.
               </p>
               <div className="space-y-2">
-                {paths.map((p, i) => (
-                  <div key={i} className="flex gap-2 items-center">
-                    <input
-                      type="text"
-                      value={p}
-                      onChange={e => {
-                        const next = [...paths]
-                        next[i] = e.target.value
-                        setPaths(next)
-                      }}
-                      placeholder="/absolute/path/to/CONTEXT.md"
-                      className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 font-mono"
-                    />
-                    <button
-                      onClick={() => setPaths(paths.filter((_, j) => j !== i))}
-                      className="text-slate-600 hover:text-red-400 transition-colors text-lg leading-none px-1"
-                      title="Remove"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
+                {paths.map((p, i) => {
+                  const check = fileChecks[i] ?? 'idle'
+                  return (
+                    <div key={i} className="flex gap-2 items-center">
+                      <input
+                        type="text"
+                        value={p}
+                        onChange={e => {
+                          const next = [...paths]
+                          next[i] = e.target.value
+                          setPaths(next)
+                          setFileChecks(prev => ({ ...prev, [i]: 'idle' }))
+                        }}
+                        placeholder="/absolute/path/to/CONTEXT.md"
+                        className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 font-mono"
+                      />
+                      <button
+                        onClick={() => verifyContextFile(p, i)}
+                        disabled={!p.trim() || check === 'checking'}
+                        className={`px-3 py-2 rounded-lg text-xs font-medium shrink-0 transition-colors disabled:opacity-40 ${
+                          check === 'ok'
+                            ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/40'
+                            : check === 'fail'
+                            ? 'bg-red-600/20 text-red-400 border border-red-500/40'
+                            : 'bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700'
+                        }`}
+                        title={check === 'fail' ? 'File not found or not readable' : ''}
+                      >
+                        {check === 'checking' ? '…' : check === 'ok' ? '✓' : check === 'fail' ? '✕' : 'Verify'}
+                      </button>
+                      <button
+                        onClick={() => setPaths(paths.filter((_, j) => j !== i))}
+                        className="text-slate-600 hover:text-red-400 transition-colors text-lg leading-none px-1"
+                        title="Remove"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  )
+                })}
                 <button
                   onClick={() => setPaths([...paths, ''])}
                   className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
