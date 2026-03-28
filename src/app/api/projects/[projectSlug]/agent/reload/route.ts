@@ -11,10 +11,11 @@ export async function POST(_: Request, { params }: { params: { projectSlug: stri
   })
   if (!project) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  // Regenerate the session nonce so OpenClaw starts a fresh conversation session
+  // Regenerate the session nonce so OpenClaw starts a fresh conversation session,
+  // and record a reset timestamp so stale message history is excluded from context
   await prisma.project.update({
     where: { slug: params.projectSlug },
-    data: { sessionNonce: randomUUID() },
+    data: { sessionNonce: randomUUID(), contextResetAt: new Date() },
   })
 
   const loadedDocs = project.documents

@@ -99,7 +99,10 @@ export async function POST(
     prisma.projectDocument.findMany({ where: { projectId: project.id } }),
     prisma.chapter.findMany({ where: { projectId: project.id }, orderBy: { order: 'asc' } }),
     prisma.projectMessage.findMany({
-      where: { projectId: project.id },
+      where: {
+        projectId: project.id,
+        ...(project.contextResetAt ? { createdAt: { gte: project.contextResetAt } } : {}),
+      },
       orderBy: { createdAt: 'desc' },
       take: 20,
     }).then(msgs => msgs.reverse()),

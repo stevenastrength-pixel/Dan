@@ -10,12 +10,13 @@ datasource db {
 // ─── Projects ─────────────────────────────────────────────────────────────────
 
 model Project {
-  id           Int       @id @default(autoincrement())
-  name         String
-  slug         String    @unique
-  description  String    @default("")
-  sessionNonce String    @default("")
-  createdAt    DateTime  @default(now())
+  id              Int       @id @default(autoincrement())
+  name            String
+  slug            String    @unique
+  description     String    @default("")
+  sessionNonce    String    @default("")
+  contextResetAt  DateTime?
+  createdAt       DateTime  @default(now())
 
   chapters     Chapter[]
   characters   Character[]
