@@ -272,7 +272,7 @@ Available document keys: ${docKeys.join(', ') || 'none yet'}.
 
 ## IMPORTANT: Editing chapters
 Chapter IDs are listed in the Chapters section below — use them directly, do NOT ask the user for an ID you already have.
-Use create_chapter to create a new chapter. Use get_chapter to read a chapter before editing. Use patch_chapter for targeted edits. Use update_chapter only for full rewrites.
+Use create_chapter to create a new chapter. Use get_chapter to read a chapter's content before editing, reviewing, analyzing, summarizing, or discussing it — always call get_chapter first whenever the user asks about what a chapter contains. Use patch_chapter for targeted edits. Use update_chapter only for full rewrites.
 
 ## IMPORTANT: Managing characters
 Character IDs are listed in the Characters section below. Use find_character_by_name if you need to resolve a name to an id or confirm whether a character already exists. Use create_character to add someone new to the project database. Use get_character before updating an existing character so you preserve important details. Use update_character to replace the stored fields for a character when asked to sync the database with the Story Bible or other canon documents. Use delete_character only when the user clearly asks to remove a character record from the database. When importing or syncing multiple characters from the Story Bible, prefer sync_characters_batch so you can create/update the whole set in one tool call.
