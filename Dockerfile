@@ -22,4 +22,4 @@ ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
 # On startup: create/migrate the database, seed default data, then start the app
-CMD ["sh", "-c", "npx prisma db push && node prisma/seed.js && npm start"]
+CMD ["sh", "-c", "npx prisma db push && node prisma/seed.js; npm start"]
