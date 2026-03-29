@@ -68,6 +68,10 @@ function ProjectNav({ slug, pathname, pollBadge, taskBadge }: { slug: string; pa
     { href: `/projects/${slug}/polls`, label: 'Polls', icon: '◎', badge: pollBadge },
     { href: `/projects/${slug}/tasks`, label: 'Tasks', icon: '✓', badge: taskBadge },
     { href: `/projects/${slug}/guide`, label: 'Guide', icon: '?', badge: undefined },
+    null, // divider
+    { href: `/projects/${slug}/party`, label: 'Party', icon: '⚔', badge: undefined },
+    { href: `/projects/${slug}/run`, label: 'DM Screen', icon: '🎯', badge: undefined },
+    { href: `/projects/${slug}/play`, label: 'Play', icon: '▶', badge: undefined },
   ]
 
   const items = projectType === 'campaign' ? campaignItems : novelItems
@@ -83,16 +87,20 @@ function ProjectNav({ slug, pathname, pollBadge, taskBadge }: { slug: string; pa
 
       <div className="mx-3 my-1 border-t border-slate-800/60" />
 
-      {items.map((item) => (
-        <NavLink
-          key={item.href}
-          href={item.href}
-          icon={item.icon}
-          label={item.label}
-          active={pathname.startsWith(item.href)}
-          badge={item.badge}
-        />
-      ))}
+      {items.map((item, i) =>
+        item === null ? (
+          <div key={`divider-${i}`} className="mx-3 my-1 border-t border-slate-800/60" />
+        ) : (
+          <NavLink
+            key={item.href}
+            href={item.href}
+            icon={item.icon}
+            label={item.label}
+            active={pathname.startsWith(item.href)}
+            badge={item.badge}
+          />
+        )
+      )}
 
       <div className="mx-3 my-1 border-t border-slate-800/60" />
 
