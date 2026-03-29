@@ -34,6 +34,10 @@ model Project {
   messages          ProjectMessage[]
   contributors      ProjectContributor[]
   invites           ProjectInvite[]
+  partyMembers      PartyMember[]
+  characterSheets   CharacterSheet[]
+  liveSessions      LiveSession[]
+  playRuns          PlayRun[]
   sessions          Session[]
   locations         Location[]
   encounters        Encounter[]
@@ -382,6 +386,8 @@ model Encounter {
   keyedArea     KeyedArea? @relation(fields: [keyedAreaId], references: [id])
   rewardText    String   @default("")
   status        String   @default("planned")
+  isPlaytested  Boolean  @default(false)
+  playtestedAt  DateTime?
   // Trap fields
   trapTrigger   String   @default("")
   detectionDC   Int?
@@ -505,4 +511,227 @@ model CampaignMagicItem {
   lore               String   @default("")
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
+}
+
+// ─── Play Mode Foundation ──────────────────────────────────────────────────────
+
+// Full D&D 5e character sheet — owned by a user, scoped to a campaign
+model CharacterSheet {
+  id               String   @id @default(cuid())
+  projectId        Int
+  project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  username         String   // DAN user who owns this sheet
+
+  // Identity
+  characterName    String   @default("Unnamed Adventurer")
+  className        String   @default("")
+  subclass         String   @default("")
+  race             String   @default("")
+  background       String   @default("")
+  alignment        String   @default("")
+  level            Int      @default(1)
+  xp               Int      @default(0)
+
+  // Ability scores (raw; mods derived)
+  STR              Int      @default(10)
+  DEX              Int      @default(10)
+  CON              Int      @default(10)
+  INT              Int      @default(10)
+  WIS              Int      @default(10)
+  CHA              Int      @default(10)
+
+  // Combat
+  maxHP            Int      @default(10)
+  currentHP        Int      @default(10)
+  tempHP           Int      @default(0)
+  AC               Int      @default(10)
+  speed            Int      @default(30)
+  proficiencyBonus Int      @default(2)
+  initiative       Int      @default(0)  // override; normally derived from DEX
+  inspiration      Boolean  @default(false)
+
+  // Saving throws — JSON: { STR: bool, DEX: bool, CON: bool, INT: bool, WIS: bool, CHA: bool }
+  savingThrowProfs String   @default("{}")
+
+  // Skills — JSON: { Acrobatics: { prof: bool, expertise: bool }, ... }
+  skillProfs       String   @default("{}")
+
+  // Death saves
+  deathSaveSuccesses Int    @default(0)
+  deathSaveFailures  Int    @default(0)
+
+  // Attacks — JSON array: [{ name, attackBonus, damage, damageType, range, notes }]
+  attacks          String   @default("[]")
+
+  // Spell slots — JSON: { "1": { max: 4, used: 0 }, "2": { max: 3, used: 0 }, ... }
+  spellSlots       String   @default("{}")
+
+  // Spells prepared — JSON array of spell names/SRD ids
+  spellsPrepared   String   @default("[]")
+
+  // Inventory — JSON array: [{ name, quantity, weight, notes, isEquipped }]
+  inventory        String   @default("[]")
+
+  // Currency — JSON: { cp, sp, ep, gp, pp }
+  currency         String   @default("{\"cp\":0,\"sp\":0,\"ep\":0,\"gp\":0,\"pp\":0}")
+
+  // Features & traits — JSON arrays of { name, source, description }
+  features         String   @default("[]")
+
+  // Personality
+  personalityTraits String  @default("")
+  ideals            String  @default("")
+  bonds             String  @default("")
+  flaws             String  @default("")
+  backstory         String  @default("")
+
+  // Active conditions — JSON array of condition strings
+  conditions        String  @default("[]")
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  partyMember      PartyMember?
+}
+
+// Links a DAN user to a campaign as a party member (separate from authoring contributor)
+model PartyMember {
+  id               Int      @id @default(autoincrement())
+  projectId        Int
+  project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  username         String
+  role             String   @default("player")  // "dm" | "player"
+  characterSheetId String?  @unique
+  characterSheet   CharacterSheet? @relation(fields: [characterSheetId], references: [id])
+  joinedAt         DateTime @default(now())
+
+  @@unique([projectId, username])
+}
+
+// ─── DM Live Tools ─────────────────────────────────────────────────────────────
+
+model LiveSession {
+  id           Int      @id @default(autoincrement())
+  projectId    Int
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  encounterId  Int?
+  name         String   @default("Combat")
+  roundNumber  Int      @default(1)
+  activeIndex  Int      @default(0)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  combatants   Combatant[]
+}
+
+model Combatant {
+  id                 Int     @id @default(autoincrement())
+  sessionId          Int
+  session            LiveSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  name               String
+  type               String  @default("monster")  // "pc" | "monster" | "npc"
+  initiative         Int     @default(0)
+  sortOrder          Int     @default(0)
+  currentHP          Int     @default(10)
+  maxHP              Int     @default(10)
+  tempHP             Int     @default(0)
+  AC                 Int     @default(10)
+  speed              Int     @default(30)
+  conditions         String  @default("[]")
+  spellSlots         String  @default("{}")        // for PCs
+  inspiration        Boolean @default(false)
+  deathSaveSuccesses Int     @default(0)
+  deathSaveFailures  Int     @default(0)
+  notes              String  @default("")
+  // Source references
+  characterSheetId   String?
+  srdCreatureId      Int?
+  campaignCreatureId Int?
+}
+
+// ─── AI Dungeon Crawler ────────────────────────────────────────────────────────
+
+model PlayRun {
+  id                 Int      @id @default(autoincrement())
+  projectId          Int
+  project            Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name               String   @default("Adventure")
+  state              String   @default("active")  // "active" | "complete" | "wiped"
+  currentLocationId  Int?
+  currentKeyedAreaId Int?
+  inCombat           Boolean  @default(false)
+  roundNumber        Int      @default(1)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  players            PlayRunPlayer[]
+  log                PlayRunLog[]
+  explored           PlayRunExplored[]
+  combatants         PlayRunCombatant[]
+}
+
+model PlayRunPlayer {
+  id               Int      @id @default(autoincrement())
+  runId            Int
+  run              PlayRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  username         String
+  characterSheetId String   // snapshot reference
+  characterName    String   @default("")
+  // Runtime state (mirrors sheet but changes during the run)
+  currentHP        Int      @default(10)
+  maxHP            Int      @default(10)
+  tempHP           Int      @default(0)
+  level            Int      @default(1)
+  xp               Int      @default(0)
+  conditions       String   @default("[]")
+  spellSlots       String   @default("{}")
+  inventory        String   @default("[]")
+  currency         String   @default("{\"cp\":0,\"sp\":0,\"ep\":0,\"gp\":0,\"pp\":0}")
+  deathState       String   @default("alive")     // "alive" | "unconscious" | "dead"
+  initiative       Int      @default(0)
+  isActive         Boolean  @default(true)
+  deathSaveSuccesses Int    @default(0)
+  deathSaveFailures  Int    @default(0)
+}
+
+model PlayRunCombatant {
+  id                 Int     @id @default(autoincrement())
+  runId              Int
+  run                PlayRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  name               String
+  type               String  @default("monster")  // "player" | "monster" | "npc"
+  initiative         Int     @default(0)
+  sortOrder          Int     @default(0)
+  currentHP          Int     @default(10)
+  maxHP              Int     @default(10)
+  tempHP             Int     @default(0)
+  AC                 Int     @default(10)
+  conditions         String  @default("[]")
+  isDefeated         Boolean @default(false)
+  // Source refs
+  playRunPlayerId    Int?
+  srdCreatureId      Int?
+  campaignCreatureId Int?
+}
+
+model PlayRunLog {
+  id          Int      @id @default(autoincrement())
+  runId       Int
+  run         PlayRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  type        String   // "narration" | "combat" | "loot" | "skill" | "death" | "dialogue" | "system" | "levelup"
+  content     String
+  speakerName String   @default("")
+  createdAt   DateTime @default(now())
+}
+
+model PlayRunExplored {
+  id           Int      @id @default(autoincrement())
+  runId        Int
+  run          PlayRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  keyedAreaId  Int?
+  encounterId  Int?
+  clearedAt    DateTime @default(now())
+
+  @@unique([runId, keyedAreaId])
 }
