@@ -719,15 +719,17 @@ export default function RunPage() {
     setMarkPlaytestedId(enc.id)
     for (const ec of enc.creatures) {
       const src = ec.srdCreature ?? ec.campaignCreature
-      if (!src) continue
+      const name = src?.name ?? 'Creature'
+      const maxHP = src?.HPAverage ?? 10
+      const AC = src?.AC ?? 10
       for (let i = 0; i < (ec.quantity ?? 1); i++) {
         const suffix = (ec.quantity ?? 1) > 1 ? ` ${i + 1}` : ''
         await addCombatant({
-          name: src.name + suffix,
+          name: name + suffix,
           type: 'monster',
-          maxHP: src.HPAverage,
-          currentHP: src.HPAverage,
-          AC: src.AC,
+          maxHP,
+          currentHP: maxHP,
+          AC,
           srdCreatureId: ec.srdCreatureId ?? undefined,
           campaignCreatureId: ec.campaignCreatureId ?? undefined,
         })
