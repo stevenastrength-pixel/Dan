@@ -3,9 +3,14 @@ export const maxDuration = 60
 
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { streamAIChat, streamOpenClaw, type OpenClawContext } from '@/lib/ai'
+import {
+  streamAIChat, streamOpenClaw,
+  callAnthropicWithTools, callOpenAIWithTools, callOpenClawWithTools,
+  type OpenClawContext, type ToolDef,
+} from '@/lib/ai'
 import { getUserFromRequest } from '@/lib/auth'
 import { readFile } from 'fs/promises'
+import { createProject } from '@/lib/projectCreation'
 
 const DANEEL_PATTERN = /@daneel\b/i
 
@@ -41,8 +46,67 @@ ${contextSection}
 - General team conversation and coordination
 - Brainstorming and creative discussion${filteredDocs.length > 0 ? ', drawing on the context above' : ''}
 - Answer general questions about writing craft, process, or tools
-${filteredDocs.length === 0 ? '- Direct users to open the relevant project if they need to discuss project-specific content\n\nYou have no access to project files, documents, characters, or world-building here — those are project-specific. If asked, let users know they should open the relevant project chat.' : ''}
-Stay sharp.`
+- Create new projects when asked — use the create_project tool to spin up a new novel or campaign
+
+## Creating Projects
+When someone asks you to create a new novel or campaign, call create_project with the name, type, and any details they provide.
+For campaigns, extract premise and setting from the conversation if available.
+After creating, confirm with the project name and a direct link: /projects/[slug]/agent
+
+${filteredDocs.length === 0 ? 'Direct users to open the relevant project if they need to discuss project-specific content.\n' : ''}Stay sharp.`
+}
+
+// ─── Tools ─────────────────────────────────────────────────────────────────────
+
+const GLOBAL_TOOLS: ToolDef[] = [
+  {
+    name: 'create_project',
+    description: 'Create a new novel or campaign project. Call this when the user asks to start, create, or set up a new project.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'The project name.' },
+        type: { type: 'string', enum: ['novel', 'campaign'], description: 'Project type.' },
+        description: { type: 'string', description: 'A short description of the project (optional).' },
+        premise: { type: 'string', description: 'Campaign premise / hook (campaign only, optional).' },
+        setting: { type: 'string', description: 'Campaign world or setting name (campaign only, optional).' },
+        minLevel: { type: 'number', description: 'Starting character level (campaign only, default 1).' },
+        maxLevel: { type: 'number', description: 'Ending character level (campaign only, default 10).' },
+        partySize: { type: 'number', description: 'Expected party size (campaign only, default 4).' },
+        levelingMode: { type: 'string', enum: ['xp', 'milestone'], description: 'Leveling mode (campaign only, default milestone).' },
+      },
+      required: ['name', 'type'],
+    },
+  },
+]
+
+// ─── Tool handler ─────────────────────────────────────────────────────────────
+
+async function handleToolCall(
+  name: string,
+  input: Record<string, unknown>,
+  creatorUsername?: string,
+): Promise<string> {
+  if (name === 'create_project') {
+    try {
+      const project = await createProject({
+        name: String(input.name ?? ''),
+        type: input.type === 'campaign' ? 'campaign' : 'novel',
+        description: input.description ? String(input.description) : undefined,
+        premise: input.premise ? String(input.premise) : undefined,
+        setting: input.setting ? String(input.setting) : undefined,
+        minLevel: input.minLevel ? Number(input.minLevel) : undefined,
+        maxLevel: input.maxLevel ? Number(input.maxLevel) : undefined,
+        partySize: input.partySize ? Number(input.partySize) : undefined,
+        levelingMode: input.levelingMode ? String(input.levelingMode) : undefined,
+        creatorUsername,
+      })
+      return JSON.stringify({ ok: true, id: project.id, slug: project.slug, name: project.name, type: project.type })
+    } catch (e) {
+      return JSON.stringify({ ok: false, error: e instanceof Error ? e.message : String(e) })
+    }
+  }
+  return JSON.stringify({ error: `Unknown tool: ${name}` })
 }
 
 // ─── GET: fetch messages ───────────────────────────────────────────────────────
@@ -126,8 +190,6 @@ export async function POST(request: Request) {
   }
 
   const contextDocs = await loadContextFiles(settings?.contextFiles ?? '[]')
-  console.log('[global-chat] contextFiles setting:', settings?.contextFiles)
-  console.log('[global-chat] loaded docs:', contextDocs.map(d => d.title))
   const systemPrompt = buildSystemPrompt(contextDocs)
   const openClawContext: OpenClawContext = {
     project: { id: 0, slug: 'global-chat', name: 'Global Chat' },
@@ -138,7 +200,7 @@ export async function POST(request: Request) {
     sessionKey: `${requestingUser?.openClawSessionKey ?? 'dan'}-global${settings?.globalSessionNonce ? `-${settings.globalSessionNonce}` : ''}`,
   }
 
-  // Build conversation history excluding the just-saved message (we pass content directly)
+  // Build conversation history excluding the just-saved message
   const history = recentMessages
     .filter(m => m.id !== message.id)
     .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }))
@@ -146,25 +208,38 @@ export async function POST(request: Request) {
 
   let aiText = ''
   try {
-    const generator = provider === 'openclaw'
-      ? streamOpenClaw({
-          messages: history,
-          systemPrompt,
-          openClawBaseUrl: settings!.openClawBaseUrl,
-          openClawApiKey: settings!.openClawApiKey || undefined,
-          openClawAgentId: settings!.openClawAgentId || undefined,
-          context: openClawContext,
-        })
-      : streamAIChat({
-          messages: history,
-          systemPrompt,
-          provider,
-          apiKey: settings!.aiApiKey,
-          model: settings!.aiModel?.trim() || undefined,
-        })
-
-    for await (const chunk of generator) {
-      aiText += chunk
+    if (provider === 'openclaw') {
+      const result = await callOpenClawWithTools({
+        messages: history,
+        systemPrompt,
+        openClawBaseUrl: settings!.openClawBaseUrl,
+        openClawApiKey: settings!.openClawApiKey || undefined,
+        openClawAgentId: settings!.openClawAgentId || undefined,
+        context: openClawContext,
+        tools: GLOBAL_TOOLS,
+        onToolCall: (n, i) => handleToolCall(n, i, requestingUser?.username),
+      })
+      aiText = result.text
+    } else if (provider === 'anthropic') {
+      const result = await callAnthropicWithTools({
+        messages: history,
+        systemPrompt,
+        apiKey: settings!.aiApiKey,
+        model: settings!.aiModel?.trim() || undefined,
+        tools: GLOBAL_TOOLS,
+        onToolCall: (n, i) => handleToolCall(n, i, requestingUser?.username),
+      })
+      aiText = result.text
+    } else {
+      const result = await callOpenAIWithTools({
+        messages: history,
+        systemPrompt,
+        apiKey: settings!.aiApiKey,
+        model: settings!.aiModel?.trim() || undefined,
+        tools: GLOBAL_TOOLS,
+        onToolCall: (n, i) => handleToolCall(n, i, requestingUser?.username),
+      })
+      aiText = result.text
     }
   } catch (err) {
     aiText = `Error: ${err instanceof Error ? err.message : String(err)}`
