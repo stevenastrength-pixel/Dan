@@ -6,7 +6,7 @@ import { prisma } from '@/lib/prisma'
 import { signToken, sessionCookie } from '@/lib/auth'
 
 export async function POST(request: Request) {
-  const { username, password, inviteCode } = await request.json()
+  const { username, password, inviteCode, projectInviteToken } = await request.json()
 
   if (!username?.trim() || !password) {
     return NextResponse.json({ error: 'Username and password are required.' }, { status: 400 })
@@ -21,15 +21,24 @@ export async function POST(request: Request) {
   const userCount = await prisma.user.count()
   const isFirstUser = userCount === 0
 
-  // Everyone except the first user needs the invite code
+  // Everyone except the first user needs either a global invite code or a valid project invite token
   if (!isFirstUser) {
-    const settings = await prisma.settings.findUnique({ where: { id: 1 } })
-    const stored = settings?.inviteCode?.trim()
-    if (!stored) {
-      return NextResponse.json({ error: 'No invite code has been set. Ask an admin to generate one.' }, { status: 403 })
+    // Check if a valid project invite token was supplied
+    let projectInviteValid = false
+    if (projectInviteToken?.trim()) {
+      const invite = await prisma.projectInvite.findUnique({ where: { token: projectInviteToken.trim() } })
+      projectInviteValid = !!invite
     }
-    if (inviteCode?.trim() !== stored) {
-      return NextResponse.json({ error: 'Invalid invite code.' }, { status: 403 })
+
+    if (!projectInviteValid) {
+      const settings = await prisma.settings.findUnique({ where: { id: 1 } })
+      const stored = settings?.inviteCode?.trim()
+      if (!stored) {
+        return NextResponse.json({ error: 'No invite code has been set. Ask an admin to generate one.' }, { status: 403 })
+      }
+      if (inviteCode?.trim() !== stored) {
+        return NextResponse.json({ error: 'Invalid invite code.' }, { status: 403 })
+      }
     }
   }
 

@@ -33,6 +33,7 @@ model Project {
   tasks             Task[]
   messages          ProjectMessage[]
   contributors      ProjectContributor[]
+  invites           ProjectInvite[]
   sessions          Session[]
   locations         Location[]
   encounters        Encounter[]
@@ -83,6 +84,13 @@ model ProjectContributor {
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@id([projectId, username])
+}
+
+model ProjectInvite {
+  token     String   @id
+  projectId Int
+  createdAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
 
 model ProjectDocument {

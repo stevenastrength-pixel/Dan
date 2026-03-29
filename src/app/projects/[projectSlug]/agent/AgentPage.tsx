@@ -1383,6 +1383,10 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
   const [pendingTasks, setPendingTasks] = useState(0)
   const [unvotedPolls, setUnvotedPolls] = useState(0)
   const [clockTime, setClockTime] = useState('')
+  const [inviteModal, setInviteModal] = useState(false)
+  const [inviteToken, setInviteToken] = useState<string | null>(null)
+  const [inviteLoading, setInviteLoading] = useState(false)
+  const [inviteCopied, setInviteCopied] = useState(false)
 
   useEffect(() => {
     const tick = () => {
@@ -1432,6 +1436,39 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
     const res = await fetch(`/api/world?projectSlug=${project.slug}`)
     if (res.ok) { setWorldEntries(await res.json()); setWorldLoaded(true) }
   }, [project.slug])
+
+  const openInviteModal = async () => {
+    setInviteModal(true)
+    setInviteLoading(true)
+    // Try to get existing token first, generate one if none exists
+    const res = await fetch(`/api/projects/${project.slug}/invite`)
+    const data = await res.json()
+    if (data.token) {
+      setInviteToken(data.token)
+      setInviteLoading(false)
+    } else {
+      const gen = await fetch(`/api/projects/${project.slug}/invite`, { method: 'POST' })
+      const genData = await gen.json()
+      setInviteToken(genData.token ?? null)
+      setInviteLoading(false)
+    }
+  }
+
+  const regenerateInvite = async () => {
+    setInviteLoading(true)
+    const res = await fetch(`/api/projects/${project.slug}/invite`, { method: 'POST' })
+    const data = await res.json()
+    setInviteToken(data.token ?? null)
+    setInviteLoading(false)
+    setInviteCopied(false)
+  }
+
+  const copyInviteText = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setInviteCopied(true)
+      setTimeout(() => setInviteCopied(false), 2000)
+    })
+  }
 
   const fetchContributors = useCallback(() => {
     fetch(`/api/projects/${project.slug}/contributors`)
@@ -1644,6 +1681,73 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
       {toast && <Toast message={toast} onDismiss={() => setToast(null)} showClose />}
       {confirmReset && <ConfirmToast message="Reset session? This will clear conversation history." onConfirm={reloadContext} onCancel={() => setConfirmReset(false)} />}
 
+      {/* Invite modal */}
+      {inviteModal && (() => {
+        const inviteUrl = inviteToken ? `${typeof window !== 'undefined' ? window.location.origin : ''}/join/${inviteToken}` : ''
+        const typeLabel = project.type === 'campaign' ? 'D&D campaign' : 'collaborative novel'
+        const shareText = inviteToken
+          ? `You're invited to collaborate on "${project.name}" — a ${typeLabel} in DAN.\n\nJoin here: ${inviteUrl}`
+          : ''
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+            <div className="w-full max-w-md rounded-2xl border border-slate-700/60 bg-slate-900 p-6 space-y-4 shadow-2xl">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-slate-200">Invite to {project.name}</h2>
+                <button onClick={() => setInviteModal(false)} className="text-slate-500 hover:text-slate-300 text-lg leading-none">×</button>
+              </div>
+
+              {inviteLoading ? (
+                <p className="text-sm text-slate-500">Generating link…</p>
+              ) : inviteToken ? (
+                <>
+                  <div>
+                    <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Invite link</p>
+                    <div className="flex gap-2">
+                      <input
+                        readOnly
+                        value={inviteUrl}
+                        className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-300 font-mono focus:outline-none"
+                        onFocus={e => e.target.select()}
+                      />
+                      <button
+                        onClick={() => copyInviteText(inviteUrl)}
+                        className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium rounded-lg transition-colors whitespace-nowrap"
+                      >
+                        {inviteCopied ? 'Copied!' : 'Copy'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Shareable message</p>
+                    <textarea
+                      readOnly
+                      value={shareText}
+                      rows={4}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-300 resize-none focus:outline-none"
+                      onFocus={e => e.target.select()}
+                    />
+                    <button
+                      onClick={() => copyInviteText(shareText)}
+                      className="mt-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-medium rounded-lg transition-colors"
+                    >
+                      Copy message
+                    </button>
+                  </div>
+
+                  <p className="text-[11px] text-slate-600">
+                    Anyone with this link can sign in or create an account and will be auto-added as a contributor.{' '}
+                    <button onClick={regenerateInvite} className="text-slate-500 hover:text-slate-400 underline underline-offset-2">Revoke &amp; regenerate</button>
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm text-red-400">Failed to generate invite link.</p>
+              )}
+            </div>
+          </div>
+        )
+      })()}
+
       {/* Main area (header + content) — pushed left on mobile when doc sidebar opens */}
       <div className={`flex flex-col flex-1 min-h-0 overflow-hidden transition-transform duration-200 ease-in-out ${docSidebarOpen ? '-translate-x-64 lg:translate-x-0' : 'translate-x-0'}`}>
 
@@ -1672,6 +1776,11 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
               {joiningContributor ? 'Joining…' : 'Join Project'}
             </button>
           )}
+          <button onClick={openInviteModal}
+            className="hidden sm:flex px-3 py-1.5 items-center justify-center border border-slate-700 rounded-lg text-xs font-medium text-slate-400 hover:border-slate-600 hover:text-slate-300 transition-colors"
+            title="Invite someone to this project">
+            Invite
+          </button>
           <button onClick={() => setConfirmReset(true)} disabled={reloading}
             className="w-8 h-8 sm:w-auto sm:h-auto sm:px-3 sm:py-1.5 flex items-center justify-center border border-slate-700 rounded-lg text-xs font-medium text-slate-400 hover:border-slate-600 hover:text-slate-300 transition-colors disabled:opacity-40">
             ↺<span className="hidden sm:inline ml-1">{reloading ? 'Resetting…' : 'Reload Context'}</span>
