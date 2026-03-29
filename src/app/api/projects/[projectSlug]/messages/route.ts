@@ -219,14 +219,14 @@ You are building a published-quality 5e campaign book — everything that would 
 - create_location to add named areas (dungeons, towns, regions, buildings)
 - create_keyed_area to add numbered rooms/areas inside a location
 - create_encounter to add combat, social, exploration, trap, or hazard encounters
-- add_creature_to_encounter to link SRD or custom creatures to an encounter
+- add_creature_to_encounter to link a creature to an encounter — ALWAYS call search_creature or create_campaign_creature FIRST to get a valid id; never guess an id
 - search_creature to look up monsters by name, CR, or type from the SRD library
 - search_spell / search_magic_item for SRD reference lookups
 - create_quest, update_quest for quest management
 - create_timeline_event for the villain's advancing plan
 - create_random_table for encounter/rumor/weather tables
 - create_campaign_magic_item for unique items
-- create_campaign_creature for custom homebrew monsters
+- create_campaign_creature for custom homebrew monsters — returns the creature id, which you then pass to add_creature_to_encounter
 - create_npc to add NPCs (same as create_character but with campaign fields)
 
 ## CRITICAL: Document editing
@@ -869,13 +869,13 @@ ${worldList}`
       },
       {
         name: 'add_creature_to_encounter',
-        description: 'Add a creature (from SRD or homebrew) to an encounter. Use search_creature first to find the SRD creature id.',
+        description: 'Add a creature to an encounter. IMPORTANT: you must supply a valid id — never guess. For SRD creatures: call search_creature first, use the returned id as srdCreatureId. For homebrew creatures: call create_campaign_creature first, use the returned id as campaignCreatureId. Do NOT call this tool without a confirmed id from a previous tool call.',
         input_schema: {
           type: 'object' as const,
           properties: {
             encounterId: { type: 'number', description: 'The encounter id.' },
-            srdCreatureId: { type: 'number', description: 'SRD creature id (from search_creature). Use this OR campaignCreatureId.' },
-            campaignCreatureId: { type: 'number', description: 'Homebrew campaign creature id. Use this OR srdCreatureId.' },
+            srdCreatureId: { type: 'number', description: 'SRD creature id returned by search_creature. Use this OR campaignCreatureId.' },
+            campaignCreatureId: { type: 'number', description: 'Homebrew creature id returned by create_campaign_creature. Use this OR srdCreatureId.' },
             quantity: { type: 'number', description: 'How many of this creature (default 1).' },
             notes: { type: 'string', description: 'Per-creature notes (renamed, variant stats, special role, etc.).' },
           },

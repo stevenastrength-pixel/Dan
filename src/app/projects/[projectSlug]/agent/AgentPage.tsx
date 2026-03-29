@@ -671,7 +671,7 @@ function Avatar({ name, online }: { name: string; online: boolean }) {
 
 // ─── Chat Panel ───────────────────────────────────────────────────────────────
 
-function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated, onPollCreated, onTaskAssigned }: { projectSlug: string; username: string; onDocumentUpdated?: () => void; onChapterUpdated?: () => void; onPollCreated?: (poll?: Poll) => void; onTaskAssigned?: () => void }) {
+function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated, onCharacterUpdated, onWorldUpdated, onPollCreated, onTaskAssigned }: { projectSlug: string; username: string; onDocumentUpdated?: () => void; onChapterUpdated?: () => void; onCharacterUpdated?: () => void; onWorldUpdated?: () => void; onPollCreated?: (poll?: Poll) => void; onTaskAssigned?: () => void }) {
   const [messages, setMessages] = useState<ProjectMessage[]>([])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
@@ -997,6 +997,8 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
       if (data.message) lastIdRef.current = Math.max(lastIdRef.current, data.aiMessage?.id ?? data.message.id)
       if (data.aiMessage?.content?.includes('📝')) onDocumentUpdated?.()
       if (data.aiMessage?.content?.includes('📖')) onChapterUpdated?.()
+      if (data.aiMessage?.content?.includes('👤') || data.aiMessage?.content?.includes('👥')) onCharacterUpdated?.()
+      if (data.aiMessage?.content?.includes('🌍')) onWorldUpdated?.()
       if (data.aiMessage) onPollCreated?.(data.createdPoll ?? undefined)
       if (data.createdTask) onTaskAssigned?.()
     } catch {}
@@ -1728,6 +1730,8 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
               username={username ?? 'Anonymous'}
               onDocumentUpdated={fetchDocuments}
               onChapterUpdated={fetchChapters}
+              onCharacterUpdated={fetchCharacters}
+              onWorldUpdated={fetchWorld}
               onPollCreated={() => { fetchNotifications() }}
               onTaskAssigned={() => { fetchNotifications() }}
             />
