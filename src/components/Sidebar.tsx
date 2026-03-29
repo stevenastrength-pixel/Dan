@@ -6,15 +6,16 @@ import { useState, useEffect } from 'react'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { DanIcon } from '@/components/DanLogo'
 
-// ─── Global nav (shown when not inside a project) ─────────────────────────────
+// ─── Global nav ───────────────────────────────────────────────────────────────
 
 const GLOBAL_NAV = [
-  { href: '/projects', label: 'Projects', icon: '◫' },
+  { href: '/novels', label: 'Novels', icon: '◫' },
+  { href: '/campaigns', label: 'Campaigns', icon: '⚔' },
   { href: '/agent', label: 'Chat', icon: '⬡' },
   { href: '/settings', label: 'Settings', icon: '⚙' },
 ]
 
-// ─── Project nav (shown when inside /projects/[slug]/...) ─────────────────────
+// ─── Project nav ──────────────────────────────────────────────────────────────
 
 function NavLink({ href, icon, label, active, badge }: { href: string; icon: string; label: string; active: boolean; badge?: number }) {
   return (
@@ -38,25 +39,50 @@ function NavLink({ href, icon, label, active, badge }: { href: string; icon: str
 }
 
 function ProjectNav({ slug, pathname, pollBadge, taskBadge }: { slug: string; pathname: string; pollBadge: number; taskBadge: number }) {
-  const items = [
+  const [projectType, setProjectType] = useState<'novel' | 'campaign' | null>(null)
+
+  useEffect(() => {
+    fetch(`/api/projects/${slug}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.type) setProjectType(d.type) })
+      .catch(() => {})
+  }, [slug])
+
+  const backHref = projectType === 'campaign' ? '/campaigns' : '/novels'
+  const backLabel = projectType === 'campaign' ? '← Campaigns' : '← Novels'
+
+  const novelItems = [
     { href: `/projects/${slug}/agent`, label: 'Agent', icon: '⬡', badge: undefined },
     { href: `/projects/${slug}/polls`, label: 'Polls', icon: '◎', badge: pollBadge },
     { href: `/projects/${slug}/tasks`, label: 'Tasks', icon: '✓', badge: taskBadge },
+    { href: `/projects/${slug}/guide`, label: 'Guide', icon: '?', badge: undefined },
   ]
+
+  const campaignItems = [
+    { href: `/projects/${slug}/agent`, label: 'Agent', icon: '⬡', badge: undefined },
+    { href: `/projects/${slug}/locations`, label: 'Locations', icon: '⌖', badge: undefined },
+    { href: `/projects/${slug}/encounters`, label: 'Encounters', icon: '⚔', badge: undefined },
+    { href: `/projects/${slug}/quests`, label: 'Quests', icon: '📜', badge: undefined },
+    { href: `/projects/${slug}/tables`, label: 'Tables', icon: '🎲', badge: undefined },
+    { href: `/projects/${slug}/timeline`, label: 'Timeline', icon: '◷', badge: undefined },
+    { href: `/projects/${slug}/polls`, label: 'Polls', icon: '◎', badge: pollBadge },
+    { href: `/projects/${slug}/tasks`, label: 'Tasks', icon: '✓', badge: taskBadge },
+    { href: `/projects/${slug}/guide`, label: 'Guide', icon: '?', badge: undefined },
+  ]
+
+  const items = projectType === 'campaign' ? campaignItems : novelItems
 
   return (
     <>
-      {/* Back to all projects */}
       <Link
-        href="/projects"
+        href={backHref}
         className="flex items-center gap-2 px-3 py-2 text-sm text-slate-500 hover:text-slate-300 font-medium transition-colors border border-transparent"
       >
-        ← Projects
+        {backLabel}
       </Link>
 
       <div className="mx-3 my-1 border-t border-slate-800/60" />
 
-      {/* Project-scoped links */}
       {items.map((item) => (
         <NavLink
           key={item.href}
@@ -193,6 +219,8 @@ export default function Sidebar() {
   // Extract projectSlug from /projects/[slug]/... paths
   const projectMatch = pathname.match(/^\/projects\/([^/]+)/)
   const projectSlug = projectMatch?.[1]
+  // Also treat /novels and /campaigns as non-project pages
+  const isListPage = pathname === '/novels' || pathname === '/campaigns' || pathname === '/projects'
 
   useEffect(() => {
     if (!projectSlug) { setPollBadge(0); setTaskBadge(0); return }
@@ -214,7 +242,7 @@ export default function Sidebar() {
   return (
     <aside className="w-56 h-full bg-slate-950 border-r border-slate-900 flex flex-col shrink-0">
       <div className="px-4 h-16 border-b border-slate-900 flex items-center justify-between shrink-0">
-        <Link href="/projects" className="hover:opacity-80 transition-opacity flex items-center gap-2">
+        <Link href="/novels" className="hover:opacity-80 transition-opacity flex items-center gap-2">
           <DanIcon size={48} />
           <span className="flex flex-col leading-tight">
             <span className="text-lg font-semibold tracking-[0.2em] text-slate-900 dark:text-white">DAN</span>

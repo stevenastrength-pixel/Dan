@@ -17,6 +17,7 @@ export default async function Page({ params }: { params: { projectSlug: string }
         name: project.name,
         slug: project.slug,
         description: project.description,
+        type: (project as { type?: string }).type ?? 'novel',
       }}
     />
   )

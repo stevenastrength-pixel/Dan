@@ -5,7 +5,7 @@ import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import CharacterCount from '@tiptap/extension-character-count'
 import { useState, useEffect, useRef } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useParams } from 'next/navigation'
 
 type Comment = {
   id: string
@@ -18,6 +18,7 @@ type Comment = {
 type Chapter = {
   id: string
   title: string
+  synopsis: string
   content: string
   comments: Comment[]
 }
@@ -35,7 +36,12 @@ type AIChatMessage = {
 
 export default function ChapterEditor({ chapter }: { chapter: Chapter }) {
   const router = useRouter()
+  const params = useParams()
+  const projectSlug = params.projectSlug as string | undefined
+  const backHref = projectSlug ? `/projects/${projectSlug}/chapters` : '/chapters'
+
   const [title, setTitle] = useState(chapter.title)
+  const [synopsis, setSynopsis] = useState(chapter.synopsis ?? '')
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved')
   const [showVersions, setShowVersions] = useState(false)
   const [versions, setVersions] = useState<Version[]>([])
@@ -43,8 +49,10 @@ export default function ChapterEditor({ chapter }: { chapter: Chapter }) {
   const [newComment, setNewComment] = useState('')
   const [username, setUsername] = useState('')
   const [showUsernamePrompt, setShowUsernamePrompt] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const nameInputRef = useRef<HTMLInputElement>(null)
   const saveTimer = useRef<NodeJS.Timeout | null>(null)
+  const synopsisRef = useRef(chapter.synopsis ?? '')
 
   // AI Chat state
   const [rightPanel, setRightPanel] = useState<'comments' | 'ai'>('comments')
@@ -88,6 +96,7 @@ export default function ChapterEditor({ chapter }: { chapter: Chapter }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             title: titleRef.current,
+            synopsis: synopsisRef.current,
             content: editor.getHTML(),
             savedBy: usernameRef.current || 'Unknown',
           }),
@@ -106,6 +115,7 @@ export default function ChapterEditor({ chapter }: { chapter: Chapter }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         title: titleRef.current,
+        synopsis: synopsisRef.current,
         content: editor.getHTML(),
         savedBy: usernameRef.current || 'Unknown',
       }),
@@ -139,9 +149,8 @@ export default function ChapterEditor({ chapter }: { chapter: Chapter }) {
   }
 
   const deleteChapter = async () => {
-    if (!confirm(`Delete "${title}"? This cannot be undone.`)) return
     await fetch(`/api/chapters/${chapter.id}`, { method: 'DELETE' })
-    router.back()
+    router.push(backHref)
   }
 
   const addComment = async () => {
@@ -324,9 +333,9 @@ export default function ChapterEditor({ chapter }: { chapter: Chapter }) {
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Toolbar */}
         <div className="bg-slate-950 border-b border-slate-800/60 px-5 py-2.5 flex items-center gap-2 shrink-0">
-          <button onClick={() => router.back()} className="text-xs text-slate-500 hover:text-slate-300 mr-1 transition-colors">
+          <a href={backHref} className="text-xs text-slate-500 hover:text-slate-300 mr-1 transition-colors">
             ← Chapters
-          </button>
+          </a>
           <div className="w-px h-4 bg-slate-800" />
 
           {/* Formatting buttons */}
@@ -388,35 +397,26 @@ export default function ChapterEditor({ chapter }: { chapter: Chapter }) {
 
           <div className="ml-auto flex items-center gap-3">
             <span className="text-xs text-slate-600">{wordCount.toLocaleString()} words</span>
-            <button
-              onClick={loadVersions}
-              className="text-xs px-3 py-1.5 border border-slate-700 rounded-lg text-slate-400 hover:border-slate-600 hover:text-slate-300 transition-colors"
-            >
+            <button onClick={loadVersions} className="text-xs px-3 py-1.5 border border-slate-700 rounded-lg text-slate-400 hover:border-slate-600 hover:text-slate-300 transition-colors">
               History
             </button>
-            <button
-              onClick={saveNow}
-              className="text-xs px-3 py-1.5 border border-slate-700 rounded-lg text-slate-400 hover:border-slate-600 hover:text-slate-300 transition-colors"
-            >
+            <button onClick={saveNow} className="text-xs px-3 py-1.5 border border-slate-700 rounded-lg text-slate-400 hover:border-slate-600 hover:text-slate-300 transition-colors">
               Save now
             </button>
-            <span
-              className={`text-xs font-medium ${
-                saveStatus === 'saved'
-                  ? 'text-emerald-500'
-                  : saveStatus === 'saving'
-                  ? 'text-amber-400'
-                  : 'text-slate-600'
-              }`}
-            >
+            <span className={`text-xs font-medium ${saveStatus === 'saved' ? 'text-emerald-500' : saveStatus === 'saving' ? 'text-amber-400' : 'text-slate-600'}`}>
               {saveStatus === 'saved' ? '✓ Saved' : saveStatus === 'saving' ? 'Saving…' : '● Unsaved'}
             </span>
-            <button
-              onClick={deleteChapter}
-              className="text-xs px-2 py-1.5 text-red-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
-            >
-              Delete
-            </button>
+            {confirmDelete ? (
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-slate-500">Delete chapter?</span>
+                <button onClick={deleteChapter} className="text-xs px-2.5 py-1 rounded bg-red-600 hover:bg-red-500 text-white font-medium transition-colors">Delete</button>
+                <button onClick={() => setConfirmDelete(false)} className="text-xs px-2 py-1 text-slate-400 hover:text-slate-200 transition-colors">Cancel</button>
+              </div>
+            ) : (
+              <button onClick={() => setConfirmDelete(true)} className="text-xs px-2 py-1.5 text-red-500/70 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors">
+                Delete
+              </button>
+            )}
           </div>
         </div>
 
@@ -432,7 +432,18 @@ export default function ChapterEditor({ chapter }: { chapter: Chapter }) {
               }}
               onBlur={saveNow}
               placeholder="Chapter Title"
-              className="w-full text-3xl font-bold text-slate-100 border-none outline-none bg-transparent mb-8 placeholder:text-slate-700"
+              className="w-full text-3xl font-bold text-slate-100 border-none outline-none bg-transparent mb-3 placeholder:text-slate-700"
+            />
+            <input
+              value={synopsis}
+              onChange={(e) => {
+                setSynopsis(e.target.value)
+                synopsisRef.current = e.target.value
+                setSaveStatus('unsaved')
+              }}
+              onBlur={saveNow}
+              placeholder="Synopsis — one sentence summary (visible to Daneel)"
+              className="w-full text-sm text-slate-500 italic border-none outline-none bg-transparent mb-8 placeholder:text-slate-700"
             />
             <EditorContent editor={editor} />
           </div>

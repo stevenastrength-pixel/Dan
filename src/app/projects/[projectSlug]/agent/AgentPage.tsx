@@ -1,13 +1,14 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import Link from 'next/link'
 import { useMobileMenu } from '@/components/AppShell'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type ProjectMessage = { id: number; role: 'user' | 'assistant'; author: string; content: string; imageUrl?: string | null; fileName?: string | null; createdAt: string }
-type ProjectInfo = { id: number; name: string; slug: string; description: string }
+type ProjectMessage = { id: number; role: 'user' | 'assistant'; author: string; content: string; imageUrl?: string | null; fileName?: string | null; isPinned: boolean; createdAt: string }
+type ProjectInfo = { id: number; name: string; slug: string; description: string; type: string }
 type ProjectDocument = { id: number; key: string; title: string; content: string; updatedAt: string }
 type Poll = {
   id: number; question: string; options: string[]; createdBy: string
@@ -87,8 +88,10 @@ function ConfirmToast({ message, onConfirm, onCancel }: { message: string; onCon
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 
+type CtxMenuItem = { label: string; action: () => void; danger?: boolean }
+
 function SidebarSection({
-  label, items, selectedId, onSelect, onCreate, createPlaceholder, loading
+  label, items, selectedId, onSelect, onCreate, createPlaceholder, loading, getContextMenu
 }: {
   label: string
   items: Array<{ id: string; label: string; sub?: string }>
@@ -97,10 +100,20 @@ function SidebarSection({
   onCreate: (name: string) => void
   createPlaceholder: string
   loading?: boolean
+  getContextMenu?: (id: string, idx: number) => CtxMenuItem[]
 }) {
   const [open, setOpen] = useState(true)
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
+  const [ctxMenu, setCtxMenu] = useState<{ id: string; x: number; y: number } | null>(null)
+  const [renaming, setRenaming] = useState<{ id: string; value: string } | null>(null)
+
+  useEffect(() => {
+    if (!ctxMenu) return
+    const close = () => setCtxMenu(null)
+    const timer = setTimeout(() => window.addEventListener('mousedown', close), 0)
+    return () => { clearTimeout(timer); window.removeEventListener('mousedown', close) }
+  }, [ctxMenu])
 
   const submit = () => {
     if (!newName.trim()) return
@@ -137,20 +150,76 @@ function SidebarSection({
           )}
           {loading && <p className="text-xs text-slate-600 px-3 pb-2">Loading…</p>}
           <nav className="space-y-0.5 px-2 pb-2">
-            {items.map(item => (
-              <button key={item.id} onClick={() => onSelect(item.id)}
-                className={`w-full text-left px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                  selectedId === item.id
-                    ? 'bg-emerald-600/15 text-emerald-300'
-                    : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
-                }`}>
-                <span className="block truncate">{item.label}</span>
-                {item.sub && <span className="text-[10px] text-slate-600">{item.sub}</span>}
-              </button>
+            {items.map((item, idx) => (
+              <div key={item.id}>
+                {renaming?.id === item.id ? (
+                  <div className="px-1 py-0.5 flex gap-1">
+                    <input
+                      autoFocus
+                      value={renaming.value}
+                      onChange={e => setRenaming({ id: item.id, value: e.target.value })}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          const menuItem = getContextMenu?.(item.id, idx).find(m => m.label.startsWith('✏'))
+                          // trigger the rename save via context menu's stored action with new value
+                          // We find the rename action from the menu and call it with updated value
+                          setRenaming(null)
+                        }
+                        if (e.key === 'Escape') setRenaming(null)
+                      }}
+                      onBlur={() => setRenaming(null)}
+                      className="flex-1 bg-slate-800 border border-emerald-500/50 rounded px-2 py-1 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+                    />
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => onSelect(item.id)}
+                    onContextMenu={e => {
+                      if (!getContextMenu) return
+                      e.preventDefault()
+                      e.stopPropagation()
+                      setCtxMenu({ id: item.id, x: e.clientX, y: e.clientY })
+                    }}
+                    className={`w-full text-left px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                      selectedId === item.id
+                        ? 'bg-emerald-600/15 text-emerald-300'
+                        : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+                    }`}>
+                    <span className="block truncate">{item.label}</span>
+                    {item.sub && <span className="text-[10px] text-slate-600">{item.sub}</span>}
+                  </button>
+                )}
+              </div>
             ))}
           </nav>
         </>
       )}
+
+      {/* Context menu — rendered via portal to escape CSS transform containing block */}
+      {ctxMenu && getContextMenu && typeof document !== 'undefined' && createPortal((() => {
+        const idx = items.findIndex(i => i.id === ctxMenu.id)
+        const menuItems = getContextMenu(ctxMenu.id, idx)
+        const menuH = menuItems.length * 36 + 8
+        const x = ctxMenu.x + 192 > window.innerWidth ? ctxMenu.x - 192 : ctxMenu.x
+        const y = ctxMenu.y + menuH > window.innerHeight ? ctxMenu.y - menuH : ctxMenu.y
+        return (
+          <div
+            className="fixed z-[9999] bg-slate-800 border border-slate-700 rounded-xl shadow-2xl py-1.5 w-48"
+            style={{ left: x, top: y }}
+            onMouseDown={e => e.stopPropagation()}
+          >
+            {menuItems.map(item => (
+              <button
+                key={item.label}
+                onClick={() => { item.action(); setCtxMenu(null) }}
+                className={`w-full text-left px-4 py-2 text-xs hover:bg-slate-700/60 transition-colors ${item.danger ? 'text-red-400' : 'text-slate-200'}`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        )
+      })(), document.body)}
     </div>
   )
 }
@@ -159,7 +228,11 @@ function Sidebar({
   documents, selectedView, onSelectDoc, onSelectChapter, onSelectCharacter, onSelectWorld,
   chapters, characters, worldEntries,
   onCreateChapter, onCreateCharacter, onCreateWorldEntry,
+  onRenameChapter, onDeleteChapter, onMoveChapter, onDuplicateChapter,
+  onRenameCharacter, onDeleteCharacter,
+  onRenameWorld, onDeleteWorld,
   chaptersLoading, charactersLoading, worldLoading,
+  projectType,
 }: {
   documents: ProjectDocument[]
   selectedView: MainView
@@ -173,9 +246,18 @@ function Sidebar({
   onCreateChapter: (title: string) => void
   onCreateCharacter: (name: string) => void
   onCreateWorldEntry: (name: string) => void
+  onRenameChapter: (id: string, title: string) => void
+  onDeleteChapter: (id: string) => void
+  onMoveChapter: (id: string, direction: 'up' | 'down' | number) => void
+  onDuplicateChapter: (id: string) => void
+  onRenameCharacter: (id: string, name: string) => void
+  onDeleteCharacter: (id: string) => void
+  onRenameWorld: (id: string, name: string) => void
+  onDeleteWorld: (id: string) => void
   chaptersLoading: boolean
   charactersLoading: boolean
   worldLoading: boolean
+  projectType: string
 }) {
   const selectedDocKey = selectedView.type === 'document' ? selectedView.key : null
   const selectedChapterId = selectedView.type === 'chapter' ? selectedView.id : null
@@ -183,9 +265,94 @@ function Sidebar({
   const selectedWorldId = selectedView.type === 'world' ? selectedView.id : null
 
   const [docsOpen, setDocsOpen] = useState(true)
+  const [renamePrompt, setRenamePrompt] = useState<{ id: string; current: string; type: 'chapter' | 'character' | 'world' } | null>(null)
+  const [positionPrompt, setPositionPrompt] = useState<{ id: string; current: number; total: number } | null>(null)
+  const [positionValue, setPositionValue] = useState('')
+  const [renameValue, setRenameValue] = useState('')
+
+  const chapterContextMenu = (id: string, idx: number): CtxMenuItem[] => [
+    { label: '✏ Rename', action: () => { setRenameValue(chapters[idx]?.title ?? ''); setRenamePrompt({ id, current: chapters[idx]?.title ?? '', type: 'chapter' }) } },
+    ...(idx > 0 ? [{ label: '↑ Move Up', action: () => onMoveChapter(id, 'up') }] : []),
+    ...(idx < chapters.length - 1 ? [{ label: '↓ Move Down', action: () => onMoveChapter(id, 'down') }] : []),
+    { label: '# Set Position', action: () => { setPositionValue(String(idx + 1)); setPositionPrompt({ id, current: idx + 1, total: chapters.length }) } },
+    { label: '⎘ Duplicate', action: () => onDuplicateChapter(id) },
+    { label: '🗑 Delete', action: () => onDeleteChapter(id), danger: true },
+  ]
+
+  const characterContextMenu = (id: string, idx: number): CtxMenuItem[] => [
+    { label: '✏ Rename', action: () => { setRenameValue(characters[idx]?.name ?? ''); setRenamePrompt({ id, current: characters[idx]?.name ?? '', type: 'character' }) } },
+    { label: '🗑 Delete', action: () => onDeleteCharacter(id), danger: true },
+  ]
+
+  const worldContextMenu = (id: string, idx: number): CtxMenuItem[] => [
+    { label: '✏ Rename', action: () => { setRenameValue(worldEntries[idx]?.name ?? ''); setRenamePrompt({ id, current: worldEntries[idx]?.name ?? '', type: 'world' }) } },
+    { label: '🗑 Delete', action: () => onDeleteWorld(id), danger: true },
+  ]
+
+  const submitRename = () => {
+    if (!renamePrompt || !renameValue.trim()) { setRenamePrompt(null); return }
+    if (renamePrompt.type === 'chapter') onRenameChapter(renamePrompt.id, renameValue.trim())
+    else if (renamePrompt.type === 'character') onRenameCharacter(renamePrompt.id, renameValue.trim())
+    else onRenameWorld(renamePrompt.id, renameValue.trim())
+    setRenamePrompt(null)
+  }
+
+  const submitPosition = () => {
+    if (!positionPrompt) return
+    const pos = parseInt(positionValue)
+    if (!isNaN(pos) && pos >= 1 && pos <= positionPrompt.total) {
+      onMoveChapter(positionPrompt.id, pos - 1)
+    }
+    setPositionPrompt(null)
+  }
 
   return (
     <div className="w-64 h-full border-l border-slate-800/60 flex flex-col shrink-0 bg-slate-950 overflow-y-auto">
+
+      {/* Rename modal */}
+      {renamePrompt && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onMouseDown={() => setRenamePrompt(null)}>
+          <div className="bg-slate-900 border border-slate-700 rounded-xl p-4 w-72 shadow-2xl" onMouseDown={e => e.stopPropagation()}>
+            <p className="text-xs text-slate-400 mb-2 uppercase tracking-wider font-semibold">Rename</p>
+            <input
+              autoFocus
+              value={renameValue}
+              onChange={e => setRenameValue(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') submitRename(); if (e.key === 'Escape') setRenamePrompt(null) }}
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 mb-3"
+            />
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setRenamePrompt(null)} className="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors">Cancel</button>
+              <button onClick={submitRename} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-medium transition-colors">Rename</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Set position modal */}
+      {positionPrompt && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onMouseDown={() => setPositionPrompt(null)}>
+          <div className="bg-slate-900 border border-slate-700 rounded-xl p-4 w-64 shadow-2xl" onMouseDown={e => e.stopPropagation()}>
+            <p className="text-xs text-slate-400 mb-1 uppercase tracking-wider font-semibold">Move to {projectType === 'campaign' ? 'Part' : 'Chapter'} #</p>
+            <p className="text-[10px] text-slate-600 mb-3">1 – {positionPrompt.total}</p>
+            <input
+              autoFocus
+              type="number"
+              min={1}
+              max={positionPrompt.total}
+              value={positionValue}
+              onChange={e => setPositionValue(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') submitPosition(); if (e.key === 'Escape') setPositionPrompt(null) }}
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 mb-3"
+            />
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setPositionPrompt(null)} className="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors">Cancel</button>
+              <button onClick={submitPosition} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-medium transition-colors">Move</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Documents */}
       <div className="border-b border-slate-800/60">
         <div className="flex items-center justify-between px-3 py-2">
@@ -213,37 +380,49 @@ function Sidebar({
         )}
       </div>
 
-      {/* Chapters */}
+      {/* Chapters / Parts */}
       <SidebarSection
-        label="Chapters"
-        items={chapters.map((c, i) => ({ id: c.id, label: c.title, sub: `Ch. ${i + 1} · ${timeAgo(c.updatedAt)}` }))}
+        label={projectType === 'campaign' ? 'Parts' : 'Chapters'}
+        items={(() => {
+          const isCampaign = projectType === 'campaign'
+          let num = 0
+          return chapters.map(c => {
+            const isPrologue = /^prologue$/i.test(c.title.trim())
+            if (!isPrologue) num++
+            const position = isPrologue ? 'Prologue' : isCampaign ? `Part ${num}` : `Ch. ${num}`
+            return { id: c.id, label: c.title, sub: `${position} · ${timeAgo(c.updatedAt)}` }
+          })
+        })()}
         selectedId={selectedChapterId}
         onSelect={onSelectChapter}
         onCreate={onCreateChapter}
-        createPlaceholder="Chapter title…"
+        createPlaceholder={projectType === 'campaign' ? 'Part title…' : 'Chapter title…'}
         loading={chaptersLoading}
+        getContextMenu={chapterContextMenu}
       />
 
-      {/* Characters */}
+      {/* Characters / NPCs */}
       <SidebarSection
-        label="Characters"
+        label={projectType === 'campaign' ? 'NPCs' : 'Characters'}
         items={characters.map(c => ({ id: c.id, label: c.name, sub: c.role || undefined }))}
         selectedId={selectedCharacterId}
         onSelect={onSelectCharacter}
         onCreate={onCreateCharacter}
-        createPlaceholder="Character name…"
+        createPlaceholder={projectType === 'campaign' ? 'NPC name…' : 'Character name…'}
         loading={charactersLoading}
+        getContextMenu={characterContextMenu}
       />
 
-      {/* World */}
+      {/* World / Factions */}
       <SidebarSection
-        label="World"
+        label={projectType === 'campaign' ? 'Factions & Lore' : 'World'}
         items={worldEntries.map(w => ({ id: w.id, label: w.name, sub: w.type || undefined }))}
         selectedId={selectedWorldId}
         onSelect={onSelectWorld}
         onCreate={onCreateWorldEntry}
-        createPlaceholder="Entry name…"
+        createPlaceholder={projectType === 'campaign' ? 'Faction or concept…' : 'Entry name…'}
         loading={worldLoading}
+        getContextMenu={worldContextMenu}
       />
     </div>
   )
@@ -508,9 +687,12 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
   const [hasMore, setHasMore] = useState(false)
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [ctxMenu, setCtxMenu] = useState<{ msg: ProjectMessage; x: number; y: number } | null>(null)
-  const [pendingFile, setPendingFile] = useState<{ file: File; preview: string | null; isImage: boolean } | null>(null)
+  const [pendingFile, setPendingFile] = useState<{ file: File; preview: string | null; isImage: boolean; isAudio: boolean } | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [replyingTo, setReplyingTo] = useState<ProjectMessage | null>(null)
+  const [pinnedMessages, setPinnedMessages] = useState<ProjectMessage[]>([])
+  const [pinnedIdx, setPinnedIdx] = useState(0)
 
   const lastIdRef = useRef<number>(0)
   const anchorIdRef = useRef<number | null>(null)
@@ -536,15 +718,45 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
     const res = await fetch(`/api/projects/${projectSlug}/messages/${id}`, { method: 'DELETE' })
     if (res.ok) {
       setMessages(prev => prev.filter(m => m.id !== id))
+      setPinnedMessages(prev => prev.filter(m => m.id !== id))
     } else {
       const err = await res.json().catch(() => ({}))
       console.error('[deleteMessage] failed', res.status, err)
     }
   }
 
+  const pinMessage = async (id: number, pin: boolean) => {
+    const res = await fetch(`/api/projects/${projectSlug}/messages/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isPinned: pin }),
+    })
+    if (!res.ok) return
+    const updated: ProjectMessage = await res.json()
+    setMessages(prev => prev.map(m => m.id === id ? updated : m))
+    if (pin) {
+      setPinnedMessages(prev => [updated, ...prev.filter(m => m.id !== id)])
+      setPinnedIdx(0)
+    } else {
+      setPinnedMessages(prev => {
+        const next = prev.filter(m => m.id !== id)
+        setPinnedIdx(i => Math.min(i, Math.max(0, next.length - 1)))
+        return next
+      })
+    }
+  }
+
+  const jumpToPinned = (msg: ProjectMessage) => {
+    const el = document.getElementById(`msg-${msg.id}`)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      el.classList.add('ring-2', 'ring-emerald-400', 'rounded-2xl')
+      setTimeout(() => el.classList.remove('ring-2', 'ring-emerald-400', 'rounded-2xl'), 1500)
+    }
+  }
+
   const replyTo = (msg: ProjectMessage) => {
-    const lines = msg.content.split('\n').map((l: string) => `> ${l}`).join('\n')
-    setInput(`${lines}\n\n`)
+    setReplyingTo(msg)
     setTimeout(() => inputRef.current?.focus(), 0)
   }
 
@@ -574,6 +786,17 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
         setMessages(msgs)
         if (msgs.length > 0) lastIdRef.current = msgs[msgs.length - 1].id
         setHasMore(msgs.length >= 200)
+      })
+      .catch(() => {})
+  }, [projectSlug])
+
+  // Load pinned messages
+  useEffect(() => {
+    fetch(`/api/projects/${projectSlug}/messages?pinned=true`)
+      .then(r => r.ok ? r.json() : [])
+      .then((msgs: ProjectMessage[]) => {
+        setPinnedMessages(msgs)
+        setPinnedIdx(0)
       })
       .catch(() => {})
   }, [projectSlug])
@@ -704,16 +927,26 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
   }
 
+  const isAudioFile = (name: string | null | undefined) =>
+    !!name && /\.(mp3|wav|ogg|m4a|flac|aac|opus)$/i.test(name)
+
   const attachFile = (file: File) => {
     const isImage = file.type.startsWith('image/')
-    const preview = isImage ? URL.createObjectURL(file) : null
-    setPendingFile({ file, preview, isImage })
+    const isAudio = file.type.startsWith('audio/') || isAudioFile(file.name)
+    const preview = (isImage || isAudio) ? URL.createObjectURL(file) : null
+    setPendingFile({ file, preview, isImage, isAudio })
     inputRef.current?.focus()
   }
 
   const send = async () => {
-    const text = input.trim()
+    let text = input.trim()
     if (!text && !pendingFile || sending) return
+    // Prepend @mention for reply if replying to someone else and not already tagged
+    if (replyingTo && replyingTo.author !== username) {
+      const tag = `@${replyingTo.author} `
+      if (!text.startsWith(tag)) text = tag + text
+    }
+    setReplyingTo(null)
     setInput('')
     setMentionQuery(null)
     setSending(true)
@@ -728,6 +961,7 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
       content: text,
       imageUrl: capturedFile?.preview ?? null,
       fileName: capturedFile?.file.name ?? null,
+      isPinned: false,
       createdAt: new Date().toISOString(),
     }])
 
@@ -859,6 +1093,40 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
         <button onClick={() => setSearchOpen(o => !o)} title="Search messages" className={`ml-auto px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${searchOpen ? 'bg-emerald-600/20 border-emerald-500/40 text-emerald-300' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600'}`}>Search</button>
       </div>
 
+      {/* Pinned message banner */}
+      {pinnedMessages.length > 0 && (() => {
+        const pinned = pinnedMessages[pinnedIdx % pinnedMessages.length]
+        const preview = pinned.content.replace(/\*\*(.*?)\*\*/g, '$1').replace(/\n/g, ' ').trim()
+        return (
+          <div
+            onClick={() => {
+              jumpToPinned(pinned)
+              if (pinnedMessages.length > 1) setPinnedIdx(i => (i + 1) % pinnedMessages.length)
+            }}
+            className="flex items-center gap-2.5 px-3 py-2 border-b border-slate-200 dark:border-slate-800/60 bg-indigo-50 dark:bg-slate-900/80 cursor-pointer group hover:bg-indigo-100 dark:hover:bg-slate-800/60 transition-colors shrink-0"
+          >
+            <div className="shrink-0 text-emerald-600 dark:text-emerald-500 text-sm leading-none">📌</div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] font-semibold text-indigo-500 dark:text-slate-500 uppercase tracking-wider">Pinned</span>
+                {pinnedMessages.length > 1 && (
+                  <span className="text-[10px] text-slate-400 dark:text-slate-600">{(pinnedIdx % pinnedMessages.length) + 1}/{pinnedMessages.length}</span>
+                )}
+                <span className="text-[10px] text-slate-400 dark:text-slate-600">· {pinned.author}</span>
+              </div>
+              <p className="text-xs text-slate-600 dark:text-slate-300 truncate leading-snug">{preview.slice(0, 90)}{preview.length > 90 ? '…' : ''}</p>
+            </div>
+            <button
+              onClick={e => { e.stopPropagation(); pinMessage(pinned.id, false) }}
+              className="opacity-0 group-hover:opacity-100 text-slate-400 dark:text-slate-600 hover:text-slate-600 dark:hover:text-slate-300 text-xs px-1 transition-all shrink-0"
+              title="Unpin"
+            >
+              ✕
+            </button>
+          </div>
+        )
+      })()}
+
       {/* Messages */}
       <div ref={scrollContainerRef} data-no-squish className="flex-1 overflow-y-auto px-4 py-3 space-y-1 bg-[#eae6df] dark:bg-[#17212b]">
         {hasMore && (
@@ -898,7 +1166,15 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
                     {msg.author}
                   </p>
                 )}
-                {msg.imageUrl && (msg.fileName && !msg.fileName.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
+                {msg.imageUrl && (isAudioFile(msg.fileName) ? (
+                  <div className="mb-2 min-w-[16rem]">
+                    <div className="flex items-center gap-1.5 mb-1 text-xs text-slate-500 dark:text-slate-400">
+                      <span>🎵</span>
+                      <span className="truncate max-w-[14rem] font-medium">{msg.fileName}</span>
+                    </div>
+                    <audio src={msg.imageUrl} controls className="w-full" style={{ height: '36px' }} />
+                  </div>
+                ) : msg.fileName && !msg.fileName.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
                   <a href={msg.imageUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 mb-1 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-700/60 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-sm text-slate-700 dark:text-slate-200 max-w-xs">
                     <span className="text-lg shrink-0">📄</span>
                     <span className="truncate font-medium">{msg.fileName}</span>
@@ -909,7 +1185,10 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
                 ))}
                 <div className="flex items-end gap-3">
                   {msg.content && <p className="whitespace-pre-wrap leading-relaxed flex-1">{renderContent(msg.content)}</p>}
-                  <span className="text-[10px] text-slate-400 dark:text-slate-500 shrink-0 leading-none mb-0.5">{time}</span>
+                  <div className="flex items-center gap-1 shrink-0 leading-none mb-0.5">
+                    {msg.isPinned && <span className="text-[9px] text-slate-400 dark:text-slate-500" title="Pinned">📌</span>}
+                    <span className="text-[10px] text-slate-400 dark:text-slate-500">{time}</span>
+                  </div>
                 </div>
               </div>
               {seenBy.length > 0 && (
@@ -940,6 +1219,7 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
               {[
                 { label: '↩ Reply', action: () => { replyTo(ctxMenu.msg); setCtxMenu(null) } },
                 { label: '⎘ Copy Text', action: () => { navigator.clipboard.writeText(ctxMenu.msg.content.replace(/\*\*(.*?)\*\*/g, '$1').replace(/\*(.*?)\*/g, '$1').replace(/\n{3,}/g, '\n\n').trim()); setCtxMenu(null) } },
+                { label: ctxMenu.msg.isPinned ? '📌 Unpin' : '📌 Pin', action: () => { pinMessage(ctxMenu.msg.id, !ctxMenu.msg.isPinned); setCtxMenu(null) } },
                 ...(ctxMenu.msg.author === username ? [{ label: '🗑 Delete', action: () => { deleteMessage(ctxMenu.msg.id); setCtxMenu(null) }, danger: true }] : []),
               ].map(item => (
                 <button key={item.label} onClick={item.action}
@@ -969,6 +1249,15 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
 
       {/* Input area */}
       <div className="px-3 py-2 border-t border-slate-200 dark:border-slate-800/60 bg-white dark:bg-slate-950 shrink-0 relative">
+        {/* Reply banner */}
+        {replyingTo && (
+          <div className="mb-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800/60 border border-slate-700/60">
+            <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold shrink-0">Replying to</span>
+            <span className="text-xs text-slate-300 font-medium shrink-0">{replyingTo.author}</span>
+            <span className="text-xs text-slate-600 truncate flex-1">{replyingTo.content.slice(0, 60)}{replyingTo.content.length > 60 ? '…' : ''}</span>
+            <button onClick={() => setReplyingTo(null)} className="text-slate-500 hover:text-slate-300 text-xs leading-none shrink-0">✕</button>
+          </div>
+        )}
         {/* @ mention dropdown */}
         {mentionCandidates.length > 0 && (
           <div className="absolute bottom-full left-3 right-3 mb-1 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden z-20">
@@ -1001,6 +1290,15 @@ function ChatPanel({ projectSlug, username, onDocumentUpdated, onChapterUpdated,
             <div className="relative">
               {pendingFile.isImage && pendingFile.preview
                 ? <img src={pendingFile.preview} alt="preview" className="rounded-xl max-h-32 max-w-48 object-contain border border-slate-200 dark:border-slate-700" />
+                : pendingFile.isAudio && pendingFile.preview
+                ? (
+                  <div className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-700/60 w-64">
+                    <div className="flex items-center gap-1.5 mb-1.5 text-xs text-slate-500 dark:text-slate-400 truncate">
+                      <span>🎵</span><span className="truncate">{pendingFile.file.name}</span>
+                    </div>
+                    <audio src={pendingFile.preview} controls className="w-full h-8" style={{ height: '32px' }} />
+                  </div>
+                )
                 : <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-700/60 text-sm text-slate-700 dark:text-slate-200 max-w-48"><span className="text-lg">📄</span><span className="truncate">{pendingFile.file.name}</span></div>
               }
               <button onClick={() => setPendingFile(null)} className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-slate-700 text-white rounded-full text-xs flex items-center justify-center hover:bg-red-500 transition-colors">✕</button>
@@ -1211,6 +1509,95 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
     }
   }
 
+  // ── Chapter management ──────────────────────────────────────────────────────
+
+  const handleRenameChapter = async (id: string, title: string) => {
+    const res = await fetch(`/api/chapters/${id}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title }),
+    })
+    if (res.ok) {
+      const updated = await res.json()
+      setChapters(prev => prev.map(c => c.id === id ? { ...c, title: updated.title } : c))
+    }
+  }
+
+  const handleDeleteChapter = async (id: string) => {
+    const res = await fetch(`/api/chapters/${id}`, { method: 'DELETE' })
+    if (res.ok) {
+      setChapters(prev => prev.filter(c => c.id !== id))
+      if (view.type === 'chapter' && view.id === id) setView({ type: 'console' })
+    }
+  }
+
+  const handleMoveChapter = async (id: string, direction: 'up' | 'down' | number) => {
+    const idx = chapters.findIndex(c => c.id === id)
+    if (idx === -1) return
+    let newIdx: number
+    if (direction === 'up') newIdx = Math.max(0, idx - 1)
+    else if (direction === 'down') newIdx = Math.min(chapters.length - 1, idx + 1)
+    else newIdx = Math.max(0, Math.min(chapters.length - 1, direction))
+    if (newIdx === idx) return
+    const reordered = [...chapters]
+    const [moved] = reordered.splice(idx, 1)
+    reordered.splice(newIdx, 0, moved)
+    setChapters(reordered)
+    await fetch('/api/chapters/reorder', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderedIds: reordered.map(c => c.id) }),
+    })
+  }
+
+  const handleDuplicateChapter = async (id: string) => {
+    const res = await fetch('/api/chapters', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ duplicateId: id, projectSlug: project.slug }),
+    })
+    if (res.ok) await fetchChapters()
+  }
+
+  // ── Character management ─────────────────────────────────────────────────────
+
+  const handleRenameCharacter = async (id: string, name: string) => {
+    const res = await fetch(`/api/characters/${id}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    })
+    if (res.ok) {
+      const updated = await res.json()
+      setCharacters(prev => prev.map(c => c.id === id ? { ...c, name: updated.name } : c))
+    }
+  }
+
+  const handleDeleteCharacter = async (id: string) => {
+    const res = await fetch(`/api/characters/${id}`, { method: 'DELETE' })
+    if (res.ok) {
+      setCharacters(prev => prev.filter(c => c.id !== id))
+      if (view.type === 'character' && view.id === id) setView({ type: 'console' })
+    }
+  }
+
+  // ── World management ─────────────────────────────────────────────────────────
+
+  const handleRenameWorld = async (id: string, name: string) => {
+    const res = await fetch(`/api/world/${id}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    })
+    if (res.ok) {
+      const updated = await res.json()
+      setWorldEntries(prev => prev.map(w => w.id === id ? { ...w, name: updated.name } : w))
+    }
+  }
+
+  const handleDeleteWorld = async (id: string) => {
+    const res = await fetch(`/api/world/${id}`, { method: 'DELETE' })
+    if (res.ok) {
+      setWorldEntries(prev => prev.filter(w => w.id !== id))
+      if (view.type === 'world' && view.id === id) setView({ type: 'console' })
+    }
+  }
+
   const reloadContext = async () => {
     setConfirmReset(false)
     setReloading(true)
@@ -1392,9 +1779,18 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
           onCreateChapter={createChapter}
           onCreateCharacter={createCharacter}
           onCreateWorldEntry={createWorldEntry}
+          onRenameChapter={handleRenameChapter}
+          onDeleteChapter={handleDeleteChapter}
+          onMoveChapter={handleMoveChapter}
+          onDuplicateChapter={handleDuplicateChapter}
+          onRenameCharacter={handleRenameCharacter}
+          onDeleteCharacter={handleDeleteCharacter}
+          onRenameWorld={handleRenameWorld}
+          onDeleteWorld={handleDeleteWorld}
           chaptersLoading={!chaptersLoaded}
           charactersLoading={!charactersLoaded}
           worldLoading={!worldLoaded}
+          projectType={project.type}
         />
       </div>
     </div>

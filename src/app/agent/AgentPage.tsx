@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useMobileMenu } from '@/components/AppShell'
 
-type GlobalMessage = { id: number; role: string; author: string; content: string; imageUrl?: string | null; fileName?: string | null; createdAt: string }
+type GlobalMessage = { id: number; role: string; author: string; content: string; imageUrl?: string | null; fileName?: string | null; isPinned: boolean; createdAt: string }
 
 const DANEEL = 'Daneel'
 
@@ -73,7 +73,9 @@ export default function GlobalChatPage() {
   const [hasMore, setHasMore] = useState(false)
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [ctxMenu, setCtxMenu] = useState<{ msg: GlobalMessage; x: number; y: number } | null>(null)
-  const [pendingFile, setPendingFile] = useState<{ file: File; preview: string | null; isImage: boolean } | null>(null)
+  const [pendingFile, setPendingFile] = useState<{ file: File; preview: string | null; isImage: boolean; isAudio: boolean } | null>(null)
+  const [pinnedMessages, setPinnedMessages] = useState<GlobalMessage[]>([])
+  const [pinnedIdx, setPinnedIdx] = useState(0)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [toast, setToast] = useState<string | null>(null)
@@ -103,6 +105,40 @@ export default function GlobalChatPage() {
     const timer = setTimeout(() => window.addEventListener('mousedown', close), 0)
     return () => { clearTimeout(timer); window.removeEventListener('mousedown', close) }
   }, [ctxMenu])
+
+  const pinMessage = async (id: number, pin: boolean) => {
+    const res = await fetch(`/api/global/messages/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isPinned: pin }),
+    })
+    if (res.ok) {
+      const updated: GlobalMessage = await res.json()
+      setMessages(prev => prev.map(m => m.id === id ? { ...m, isPinned: updated.isPinned } : m))
+      setPinnedMessages(prev => {
+        if (updated.isPinned) {
+          if (!prev.some(m => m.id === id)) return [updated, ...prev]
+          return prev.map(m => m.id === id ? updated : m)
+        }
+        return prev.filter(m => m.id !== id)
+      })
+      if (!pin && pinnedMessages.length > 1) {
+        setPinnedIdx(i => Math.min(i, pinnedMessages.length - 2))
+      } else if (!pin) {
+        setPinnedIdx(0)
+      }
+    }
+  }
+
+  const jumpToPinned = () => {
+    if (pinnedMessages.length === 0) return
+    const target = pinnedMessages[pinnedIdx]
+    const el = document.getElementById(`msg-${target.id}`)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el?.classList.add('ring-2', 'ring-indigo-400', 'rounded-2xl')
+    setTimeout(() => el?.classList.remove('ring-2', 'ring-indigo-400', 'rounded-2xl'), 1500)
+    if (pinnedMessages.length > 1) setPinnedIdx(i => (i + 1) % pinnedMessages.length)
+  }
 
   const deleteMessage = async (id: number) => {
     const res = await fetch(`/api/global/messages/${id}`, { method: 'DELETE' })
@@ -167,6 +203,14 @@ export default function GlobalChatPage() {
         if (msgs.length > 0) lastIdRef.current = msgs[msgs.length - 1].id
         setHasMore(msgs.length >= 200)
       })
+      .catch(() => {})
+  }, [])
+
+  // Load pinned messages
+  useEffect(() => {
+    fetch('/api/global/messages?pinned=true')
+      .then(r => r.json())
+      .then((msgs: GlobalMessage[]) => setPinnedMessages(msgs))
       .catch(() => {})
   }, [])
 
@@ -273,10 +317,14 @@ export default function GlobalChatPage() {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
   }
 
+  const isAudioFile = (file: File) =>
+    file.type.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|flac|aac|opus)$/i.test(file.name)
+
   const attachFile = (file: File) => {
     const isImage = file.type.startsWith('image/')
-    const preview = isImage ? URL.createObjectURL(file) : null
-    setPendingFile({ file, preview, isImage })
+    const isAudio = !isImage && isAudioFile(file)
+    const preview = (isImage || isAudio) ? URL.createObjectURL(file) : null
+    setPendingFile({ file, preview, isImage, isAudio })
     inputRef.current?.focus()
   }
 
@@ -296,6 +344,7 @@ export default function GlobalChatPage() {
     setMessages(prev => [...prev, {
       id: tempId, role: 'user', author: username,
       content: text,
+      isPinned: false,
       imageUrl: capturedFile?.preview ?? null,
       fileName: capturedFile?.file.name ?? null,
       createdAt: new Date().toISOString(),
@@ -428,6 +477,30 @@ export default function GlobalChatPage() {
         </div>
       </div>
 
+      {/* Pinned message banner */}
+      {pinnedMessages.length > 0 && (() => {
+        const pin = pinnedMessages[pinnedIdx]
+        return (
+          <div
+            onClick={jumpToPinned}
+            className="flex items-center gap-3 px-4 py-2 bg-indigo-50 dark:bg-slate-900/80 border-b border-indigo-100 dark:border-indigo-900/50 cursor-pointer hover:bg-indigo-100 dark:hover:bg-slate-800/80 transition-colors shrink-0 group"
+          >
+            <span className="text-indigo-400 shrink-0 text-base">📌</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 leading-none mb-0.5">
+                Pinned message{pinnedMessages.length > 1 ? ` (${pinnedIdx + 1}/${pinnedMessages.length})` : ''}
+              </p>
+              <p className="text-xs text-slate-700 dark:text-slate-300 truncate">{pin.author}: {pin.content || '📎 Attachment'}</p>
+            </div>
+            <button
+              onClick={e => { e.stopPropagation(); pinMessage(pin.id, false) }}
+              className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm transition-opacity shrink-0"
+              title="Unpin"
+            >✕</button>
+          </div>
+        )
+      })()}
+
       {/* Messages */}
       <div ref={scrollContainerRef} data-no-squish className="flex-1 overflow-y-auto px-4 py-3 space-y-1 bg-[#eae6df] dark:bg-[#17212b]">
         {hasMore && (
@@ -468,18 +541,29 @@ export default function GlobalChatPage() {
                       {msg.author}
                     </p>
                   )}
-                  {msg.imageUrl && (msg.fileName && !msg.fileName.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
-                    <a href={msg.imageUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 mb-1 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-700/60 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-sm text-slate-700 dark:text-slate-200 max-w-xs">
-                      <span className="text-lg shrink-0">📄</span>
-                      <span className="truncate font-medium">{msg.fileName}</span>
-                      <span className="text-xs text-slate-400 dark:text-slate-500 shrink-0 ml-auto">↓</span>
-                    </a>
-                  ) : (
-                    <img src={msg.imageUrl} alt={msg.fileName ?? 'attachment'} className="rounded-xl max-w-full max-h-64 object-contain mb-1 cursor-pointer" onClick={() => window.open(msg.imageUrl!, '_blank')} />
-                  ))}
+                  {msg.imageUrl && (() => {
+                    const isAudio = msg.fileName ? /\.(mp3|wav|ogg|m4a|flac|aac|opus)$/i.test(msg.fileName) : false
+                    if (isAudio) return (
+                      <div className="mb-1">
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mb-1 truncate">{msg.fileName}</p>
+                        <audio controls src={msg.imageUrl} className="max-w-full h-8 rounded" />
+                      </div>
+                    )
+                    if (msg.fileName && !msg.fileName.match(/\.(jpg|jpeg|png|gif|webp)$/i)) return (
+                      <a href={msg.imageUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 mb-1 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-700/60 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-sm text-slate-700 dark:text-slate-200 max-w-xs">
+                        <span className="text-lg shrink-0">📄</span>
+                        <span className="truncate font-medium">{msg.fileName}</span>
+                        <span className="text-xs text-slate-400 dark:text-slate-500 shrink-0 ml-auto">↓</span>
+                      </a>
+                    )
+                    return <img src={msg.imageUrl} alt={msg.fileName ?? 'attachment'} className="rounded-xl max-w-full max-h-64 object-contain mb-1 cursor-pointer" onClick={() => window.open(msg.imageUrl!, '_blank')} />
+                  })()}
                   <div className="flex items-end gap-3">
                     {msg.content && <p className="whitespace-pre-wrap leading-relaxed flex-1">{renderContent(msg.content)}</p>}
-                    <span className="text-[10px] text-slate-400 dark:text-slate-500 shrink-0 leading-none mb-0.5">{time}</span>
+                    <span className="text-[10px] text-slate-400 dark:text-slate-500 shrink-0 leading-none mb-0.5 flex items-center gap-1">
+                      {msg.isPinned && <span title="Pinned">📌</span>}
+                      {time}
+                    </span>
                   </div>
                 </div>
                 {isMe && <Avatar name={msg.author} />}
@@ -512,6 +596,7 @@ export default function GlobalChatPage() {
               {[
                 { label: '↩ Reply', action: () => { replyTo(ctxMenu.msg); setCtxMenu(null) } },
                 { label: '⎘ Copy Text', action: () => { navigator.clipboard.writeText(ctxMenu.msg.content.replace(/\*\*(.*?)\*\*/g, '$1').replace(/\*(.*?)\*/g, '$1').replace(/\n{3,}/g, '\n\n').trim()); setCtxMenu(null) } },
+                { label: ctxMenu.msg.isPinned ? '📌 Unpin' : '📌 Pin', action: () => { pinMessage(ctxMenu.msg.id, !ctxMenu.msg.isPinned); setCtxMenu(null) } },
                 ...(ctxMenu.msg.author === username ? [{ label: '🗑 Delete', action: () => { deleteMessage(ctxMenu.msg.id); setCtxMenu(null) }, danger: true }] : []),
               ].map(item => (
                 <button key={item.label} onClick={item.action}
@@ -565,6 +650,11 @@ export default function GlobalChatPage() {
             <div className="relative">
               {pendingFile.isImage && pendingFile.preview
                 ? <img src={pendingFile.preview} alt="preview" className="rounded-xl max-h-32 max-w-48 object-contain border border-slate-200 dark:border-slate-700" />
+                : pendingFile.isAudio && pendingFile.preview
+                ? <div className="flex flex-col gap-1 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-700/60 text-sm text-slate-700 dark:text-slate-200 max-w-xs">
+                    <span className="truncate text-xs font-medium">{pendingFile.file.name}</span>
+                    <audio controls src={pendingFile.preview} className="h-8 max-w-full" />
+                  </div>
                 : <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-700/60 text-sm text-slate-700 dark:text-slate-200 max-w-48"><span className="text-lg">📄</span><span className="truncate">{pendingFile.file.name}</span></div>
               }
               <button onClick={() => setPendingFile(null)} className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-slate-700 text-white rounded-full text-xs flex items-center justify-center hover:bg-red-500 transition-colors">✕</button>

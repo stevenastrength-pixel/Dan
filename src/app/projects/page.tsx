@@ -1,7 +1,7 @@
-import ProjectsPage from './ProjectsPage'
+import { redirect } from 'next/navigation'
 
 export const dynamic = 'force-dynamic'
 
 export default function Page() {
-  return <ProjectsPage />
+  redirect('/novels')
 }

@@ -32,7 +32,11 @@ export async function PUT(request: Request, { params }: { params: { id: string }
 
   const chapter = await prisma.chapter.update({
     where: { id: params.id },
-    data: { title: body.title, content: body.content },
+    data: {
+      ...(body.title !== undefined && { title: body.title }),
+      ...(body.content !== undefined && { content: body.content }),
+      ...(body.order !== undefined && { order: body.order }),
+    },
   })
   return NextResponse.json(chapter)
 }

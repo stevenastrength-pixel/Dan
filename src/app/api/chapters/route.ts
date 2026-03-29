@@ -31,6 +31,27 @@ export async function POST(request: Request) {
     projectId = project.id
   }
 
+  // Duplicate an existing chapter
+  if (body.duplicateId) {
+    const source = await prisma.chapter.findUnique({ where: { id: body.duplicateId } })
+    if (!source) return NextResponse.json({ error: 'Source not found' }, { status: 404 })
+    const maxOrder = await prisma.chapter.findFirst({
+      where: { projectId },
+      orderBy: { order: 'desc' },
+      select: { order: true },
+    })
+    const copy = await prisma.chapter.create({
+      data: {
+        title: `${source.title} (copy)`,
+        content: source.content,
+        synopsis: source.synopsis,
+        projectId,
+        order: (maxOrder?.order ?? 0) + 1,
+      },
+    })
+    return NextResponse.json(copy)
+  }
+
   const maxOrder = await prisma.chapter.findFirst({
     where: { projectId },
     orderBy: { order: 'desc' },

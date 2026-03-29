@@ -14,18 +14,33 @@ model Project {
   name            String
   slug            String    @unique
   description     String    @default("")
+  type            String    @default("novel")   // 'novel' | 'campaign'
   sessionNonce    String    @default("")
   contextResetAt  DateTime?
   createdAt       DateTime  @default(now())
 
-  chapters     Chapter[]
-  characters   Character[]
-  worldEntries WorldEntry[]
-  documents    ProjectDocument[]
-  polls        Poll[]
-  tasks        Task[]
-  messages     ProjectMessage[]
-  contributors ProjectContributor[]
+  // Campaign-only fields
+  levelingMode    String?   // 'xp' | 'milestone'
+  partySize       Int?
+  minLevel        Int?
+  maxLevel        Int?
+
+  chapters          Chapter[]
+  characters        Character[]
+  worldEntries      WorldEntry[]
+  documents         ProjectDocument[]
+  polls             Poll[]
+  tasks             Task[]
+  messages          ProjectMessage[]
+  contributors      ProjectContributor[]
+  sessions          Session[]
+  locations         Location[]
+  encounters        Encounter[]
+  quests            Quest[]
+  randomTables      RandomTable[]
+  timelineEvents    TimelineEvent[]
+  campaignCreatures CampaignCreature[]
+  campaignMagicItems CampaignMagicItem[]
 }
 
 model ProjectMessage {
@@ -37,6 +52,7 @@ model ProjectMessage {
   content      String
   imageUrl     String?
   fileName     String?
+  isPinned     Boolean  @default(false)
   createdAt    DateTime @default(now())
 }
 
@@ -47,6 +63,7 @@ model GlobalMessage {
   content   String
   imageUrl  String?
   fileName  String?
+  isPinned  Boolean  @default(false)
   createdAt DateTime @default(now())
 }
 
@@ -69,14 +86,15 @@ model ProjectContributor {
 }
 
 model ProjectDocument {
-  id        Int      @id @default(autoincrement())
-  projectId Int      @default(1)
-  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  key       String
-  title     String
-  content   String   @default("")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         Int      @id @default(autoincrement())
+  projectId  Int      @default(1)
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  key        String
+  title      String
+  content    String   @default("")
+  isHandout  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@unique([projectId, key])
 }
@@ -84,15 +102,16 @@ model ProjectDocument {
 // ─── Chapters ─────────────────────────────────────────────────────────────────
 
 model Chapter {
-  id        String   @id @default(cuid())
-  projectId Int      @default(1)
-  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  title     String
-  order     Int      @default(0)
-  content   String   @default("")
-  synopsis  String   @default("")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id             String   @id @default(cuid())
+  projectId      Int      @default(1)
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title          String
+  order          Int      @default(0)
+  content        String   @default("")
+  synopsis       String   @default("")
+  intendedLevel  Int?     // Campaign only: level band entering this part
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   versions ChapterVersion[]
   comments Comment[]
@@ -128,6 +147,13 @@ model Character {
   description String   @default("")
   notes       String   @default("")
   traits      String   @default("[]")
+  // Campaign NPC extensions
+  knownInfo         String @default("")
+  secrets           String @default("")
+  voiceNotes        String @default("")
+  statBlockRef      String @default("")
+  factionId         String?
+  currentLocationId String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
@@ -142,6 +168,10 @@ model WorldEntry {
   type        String   @default("Location")
   description String   @default("")
   notes       String   @default("")
+  // Faction extensions (campaign mode)
+  factionGoals     String @default("")
+  factionMethods   String @default("")
+  factionRelations String @default("[]")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
@@ -213,4 +243,258 @@ model Task {
   createdBy   String   @default("Daneel")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+// ─── SRD Reference Data (read-only, seeded at startup) ───────────────────────
+
+model SrdCreature {
+  id                   Int     @id @default(autoincrement())
+  name                 String
+  size                 String  @default("")
+  creatureType         String  @default("")
+  alignment            String  @default("")
+  CR                   String  @default("0")
+  xpValue              Int     @default(0)
+  AC                   Int     @default(10)
+  acType               String  @default("")
+  HPDice               String  @default("")
+  HPAverage            Int     @default(1)
+  speed                String  @default("{}")
+  STR                  Int     @default(10)
+  DEX                  Int     @default(10)
+  CON                  Int     @default(10)
+  INT                  Int     @default(10)
+  WIS                  Int     @default(10)
+  CHA                  Int     @default(10)
+  savingThrows         String  @default("[]")
+  skills               String  @default("[]")
+  damageResistances    String  @default("[]")
+  damageImmunities     String  @default("[]")
+  damageVulnerabilities String @default("[]")
+  conditionImmunities  String  @default("[]")
+  senses               String  @default("")
+  languages            String  @default("")
+  traits               String  @default("[]")
+  actions              String  @default("[]")
+  bonusActions         String  @default("[]")
+  reactions            String  @default("[]")
+  legendaryActions     String  @default("[]")
+  lairActions          String  @default("[]")
+  isLegendary          Boolean @default(false)
+  legendaryResistances Int     @default(0)
+  hasLairActions       Boolean @default(false)
+}
+
+model SrdSpell {
+  id           Int     @id @default(autoincrement())
+  name         String
+  level        Int     @default(0)
+  school       String  @default("")
+  castingTime  String  @default("")
+  range        String  @default("")
+  components   String  @default("")
+  duration     String  @default("")
+  concentration Boolean @default(false)
+  ritual       Boolean @default(false)
+  description  String  @default("")
+  higherLevels String  @default("")
+  classes      String  @default("[]")
+}
+
+model SrdMagicItem {
+  id                Int     @id @default(autoincrement())
+  name              String
+  rarity            String  @default("common")
+  itemType          String  @default("wondrous")
+  requiresAttunement Boolean @default(false)
+  description       String  @default("")
+}
+
+// ─── Campaign Models (Phase 2 — structure defined now, UI in Phase 2) ─────────
+
+model Session {
+  id             Int      @id @default(autoincrement())
+  projectId      Int
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title          String
+  summary        String   @default("")
+  outline        String   @default("")
+  intendedLevel  Int?
+  order          Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model Location {
+  id               Int      @id @default(autoincrement())
+  projectId        Int
+  project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name             String
+  locationType     String   @default("dungeon")  // dungeon/town/region/wilderness/building/plane
+  description      String   @default("")
+  atmosphere       String   @default("")
+  parentLocationId Int?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  keyedAreas KeyedArea[]
+  encounters Encounter[]
+}
+
+model KeyedArea {
+  id          Int      @id @default(autoincrement())
+  locationId  Int
+  location    Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  key         String
+  title       String   @default("")
+  readAloud   String   @default("")
+  dmNotes     String   @default("")
+  connections String   @default("[]")
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  encounter Encounter?
+}
+
+model Encounter {
+  id            Int      @id @default(autoincrement())
+  projectId     Int
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name          String
+  encounterType String   @default("combat")  // combat/social/exploration/trap/hazard
+  difficulty    String   @default("medium")  // trivial/easy/medium/hard/deadly
+  readAloud     String   @default("")
+  summary       String   @default("")
+  tactics       String   @default("")
+  dmNotes       String   @default("")
+  locationId    Int?
+  location      Location? @relation(fields: [locationId], references: [id])
+  keyedAreaId   Int?     @unique
+  keyedArea     KeyedArea? @relation(fields: [keyedAreaId], references: [id])
+  rewardText    String   @default("")
+  status        String   @default("planned")
+  // Trap fields
+  trapTrigger   String   @default("")
+  detectionDC   Int?
+  disarmDC      Int?
+  trapEffect    String   @default("")
+  trapReset     String   @default("")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  creatures EncounterCreature[]
+}
+
+model EncounterCreature {
+  id                 Int      @id @default(autoincrement())
+  encounterId        Int
+  encounter          Encounter @relation(fields: [encounterId], references: [id], onDelete: Cascade)
+  quantity           Int      @default(1)
+  srdCreatureId      Int?
+  campaignCreatureId Int?
+  notes              String   @default("")
+}
+
+model CampaignCreature {
+  id                   Int     @id @default(autoincrement())
+  projectId            Int
+  project              Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name                 String
+  size                 String  @default("")
+  creatureType         String  @default("")
+  alignment            String  @default("")
+  CR                   String  @default("0")
+  xpValue              Int     @default(0)
+  isHomebrew           Boolean @default(true)
+  AC                   Int     @default(10)
+  acType               String  @default("")
+  HPDice               String  @default("")
+  HPAverage            Int     @default(1)
+  speed                String  @default("{}")
+  STR                  Int     @default(10)
+  DEX                  Int     @default(10)
+  CON                  Int     @default(10)
+  INT                  Int     @default(10)
+  WIS                  Int     @default(10)
+  CHA                  Int     @default(10)
+  savingThrows         String  @default("[]")
+  skills               String  @default("[]")
+  damageResistances    String  @default("[]")
+  damageImmunities     String  @default("[]")
+  damageVulnerabilities String @default("[]")
+  conditionImmunities  String  @default("[]")
+  senses               String  @default("")
+  languages            String  @default("")
+  legendaryResistances Int     @default(0)
+  isLegendary          Boolean @default(false)
+  hasLairActions       Boolean @default(false)
+  traits               String  @default("[]")
+  actions              String  @default("[]")
+  bonusActions         String  @default("[]")
+  reactions            String  @default("[]")
+  legendaryActions     String  @default("[]")
+  lairActions          String  @default("[]")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model Quest {
+  id               Int      @id @default(autoincrement())
+  projectId        Int
+  project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name             String
+  description      String   @default("")
+  status           String   @default("active")  // active/resolved/abandoned/unknown-to-party
+  questType        String   @default("main")     // main/side/faction/personal
+  giverCharacterId String?
+  locationId       Int?
+  rewardText       String   @default("")
+  parentQuestId    Int?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model RandomTable {
+  id            Int      @id @default(autoincrement())
+  projectId     Int
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name          String
+  tableCategory String   @default("custom")  // encounter/npc-names/rumors/weather/trinkets/custom
+  dieSize       String   @default("d20")
+  description   String   @default("")
+  entries       String   @default("[]")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model TimelineEvent {
+  id               Int      @id @default(autoincrement())
+  projectId        Int
+  project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name             String
+  inWorldDay       Int      @default(0)
+  description      String   @default("")
+  triggerCondition String   @default("")
+  consequence      String   @default("")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model CampaignMagicItem {
+  id                 Int      @id @default(autoincrement())
+  projectId          Int
+  project            Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name               String
+  rarity             String   @default("uncommon")
+  itemType           String   @default("wondrous")
+  requiresAttunement Boolean  @default(false)
+  attunementNotes    String   @default("")
+  chargesMax         Int?
+  rechargeCondition  String   @default("")
+  description        String   @default("")
+  properties         String   @default("")
+  lore               String   @default("")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 }

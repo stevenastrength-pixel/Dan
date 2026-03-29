@@ -35,9 +35,18 @@ export async function GET(
   const { searchParams } = new URL(request.url)
   const afterId = searchParams.get('afterId')
   const beforeId = searchParams.get('beforeId')
+  const pinned = searchParams.get('pinned')
 
   const project = await prisma.project.findUnique({ where: { slug: params.projectSlug } })
   if (!project) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  if (pinned === 'true') {
+    const messages = await prisma.projectMessage.findMany({
+      where: { projectId: project.id, isPinned: true },
+      orderBy: { id: 'desc' },
+    })
+    return NextResponse.json(messages)
+  }
 
   if (beforeId) {
     const messages = await prisma.projectMessage.findMany({
@@ -92,6 +101,8 @@ export async function POST(
 
   const requestingUser = await getUserFromRequest(request)
 
+  const isCampaign = (project as { type?: string }).type === 'campaign'
+
   const [settings, characters, worldEntries, documents, chapters, recentMessages, tasks] = await Promise.all([
     prisma.settings.findFirst(),
     prisma.character.findMany({ where: { projectId: project.id }, orderBy: { name: 'asc' } }),
@@ -108,6 +119,15 @@ export async function POST(
     }).then(msgs => msgs.reverse()),
     prisma.task.findMany({ where: { projectId: project.id }, orderBy: { createdAt: 'asc' } }),
   ])
+
+  // Campaign-only context
+  const [campaignQuests, campaignTimeline, campaignLocations] = isCampaign
+    ? await Promise.all([
+        prisma.quest.findMany({ where: { projectId: project.id }, orderBy: [{ questType: 'asc' }, { name: 'asc' }] }),
+        prisma.timelineEvent.findMany({ where: { projectId: project.id }, orderBy: { inWorldDay: 'asc' }, take: 20 }),
+        prisma.location.findMany({ where: { projectId: project.id }, orderBy: { name: 'asc' }, select: { id: true, name: true, locationType: true } }),
+      ])
+    : [[], [], []]
 
   const provider = (settings?.aiProvider ?? 'anthropic') as 'anthropic' | 'openai' | 'openclaw'
   const contextDocs = await loadContextFiles(settings?.contextFiles ?? '[]')
@@ -161,7 +181,87 @@ export async function POST(
     return `## ${d.title}\n${body}`
   }).join('\n\n---\n\n')
 
-  const systemPrompt = `You are Daneel, the AI assistant for the writing project "${project.name}". You are part of a collaborative team chat — multiple writers use this chat to coordinate.${project.description ? `\nProject: ${project.description}` : ''}
+  const campaignMeta = isCampaign
+    ? `Level range: ${(project as {minLevel?: number}).minLevel ?? 1}–${(project as {maxLevel?: number}).maxLevel ?? 10} | Party size: ${(project as {partySize?: number}).partySize ?? 4} | Leveling: ${(project as {levelingMode?: string}).levelingMode ?? 'milestone'}`
+    : ''
+
+  const questList = (campaignQuests as Array<{name: string; questType: string; status: string; id: number; description: string}>).length > 0
+    ? (campaignQuests as Array<{name: string; questType: string; status: string; id: number; description: string}>)
+        .map(q => `- **${q.name}** (id: ${q.id}, type: ${q.questType}, status: ${q.status})${q.description ? `: ${q.description.slice(0, 100)}` : ''}`)
+        .join('\n')
+    : 'No quests defined yet.'
+
+  const timelineList = (campaignTimeline as Array<{name: string; inWorldDay: number; id: number; description: string; triggerCondition: string}>).length > 0
+    ? (campaignTimeline as Array<{name: string; inWorldDay: number; id: number; description: string; triggerCondition: string}>)
+        .map(e => `- Day ${e.inWorldDay}: **${e.name}** (id: ${e.id})${e.triggerCondition ? ` [if: ${e.triggerCondition}]` : ''} — ${e.description.slice(0, 80)}`)
+        .join('\n')
+    : 'No timeline events defined yet.'
+
+  const locationList = (campaignLocations as Array<{name: string; locationType: string; id: number}>).length > 0
+    ? (campaignLocations as Array<{name: string; locationType: string; id: number}>)
+        .map(l => `- **${l.name}** (id: ${l.id}, type: ${l.locationType})`)
+        .join('\n')
+    : 'No locations defined yet.'
+
+  const systemPrompt = isCampaign
+    ? `You are Daneel, GM co-author for the campaign "${project.name}". You are part of a collaborative team chat — multiple people use this to build the campaign book together.${project.description ? `\nCampaign: ${project.description}` : ''}
+${campaignMeta}
+
+You only respond when directly addressed with @Daneel. Keep responses focused and useful. You can see who said what by looking at the author field.
+
+Your personality: sharp, knowledgeable about 5e rules and published adventure design, opinionated about pacing and encounter balance. You think like a published adventure designer — not just creative writing, but practical GM usability. Direct without being rude. Never say "D&D" — use "the game", "5e", "the system", or refer to mechanics directly.
+
+## YOUR ROLE
+You are building a published-quality 5e campaign book — everything that would appear in a purchased module. Think Lost Mine of Phandelver, Curse of Strahd, Tomb of Annihilation: ordered adventure parts with locations, keyed areas, encounters, NPCs, quests, random tables, and a timeline.
+
+## CRITICAL: Tool usage
+- create_session to add adventure parts (the ordered spine of the campaign)
+- create_location to add named areas (dungeons, towns, regions, buildings)
+- create_keyed_area to add numbered rooms/areas inside a location
+- create_encounter to add combat, social, exploration, trap, or hazard encounters
+- add_creature_to_encounter to link SRD or custom creatures to an encounter
+- search_creature to look up monsters by name, CR, or type from the SRD library
+- search_spell / search_magic_item for SRD reference lookups
+- create_quest, update_quest for quest management
+- create_timeline_event for the villain's advancing plan
+- create_random_table for encounter/rumor/weather tables
+- create_campaign_magic_item for unique items
+- create_campaign_creature for custom homebrew monsters
+- create_npc to add NPCs (same as create_character but with campaign fields)
+
+## CRITICAL: Document editing
+Available document keys: ${docKeys.join(', ') || 'none yet'}.
+Use get_document → patch_document for targeted edits. Use update_document only for full rewrites.
+
+## CRITICAL: Creating polls and tasks
+create_poll and assign_task MUST be called as tools — writing about them in prose has no effect.
+
+## Campaign Documents
+${docSections || '(No documents written yet.)'}
+
+## Adventure Parts (ordered spine)
+${chapters.length > 0
+  ? chapters.map((c, i) => {
+      const ch = c as { id: string; title: string; synopsis: string; content: string; intendedLevel?: number | null }
+      return `- Part ${i + 1}: **${ch.title}** (id: \`${ch.id}\`)${ch.intendedLevel ? ` [Level ${ch.intendedLevel}]` : ''}${ch.synopsis ? ` — ${ch.synopsis}` : ''}${ch.content ? '' : ' *(empty)*'}`
+    }).join('\n')
+  : 'No adventure parts yet.'}
+
+## Locations
+${locationList}
+
+## NPCs
+${characterList}
+
+## Factions & Lore
+${worldList}
+
+## Active Quests
+${questList}
+
+## Timeline (villain's advancing plan)
+${timelineList}`
+    : `You are Daneel, the AI assistant for the writing project "${project.name}". You are part of a collaborative team chat — multiple writers use this chat to coordinate.${project.description ? `\nProject: ${project.description}` : ''}
 
 You only respond when directly addressed with @Daneel. Keep responses focused and useful. You can see who said what by looking at the author field in each message.
 
@@ -637,6 +737,406 @@ ${worldList}`
         required: ['polls', 'summary'],
       },
     },
+    // ── Campaign-only tools ────────────────────────────────────────────────
+    ...(isCampaign ? [
+      {
+        name: 'create_session',
+        description: 'Create a new adventure part (the ordered spine of the campaign). Use for major chapters like "Part 1: The Stolen Forge".',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            title: { type: 'string', description: 'Title of this adventure part.' },
+            synopsis: { type: 'string', description: 'Brief synopsis of what happens in this part.' },
+            intendedLevel: { type: 'number', description: 'Intended PC level for this part (optional).' },
+          },
+          required: ['title'],
+        },
+      },
+      {
+        name: 'update_session',
+        description: 'Update an existing adventure part. Call get_chapter first to confirm current content.',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            id: { type: 'string', description: 'The chapter id (from Adventure Parts list in your context).' },
+            title: { type: 'string', description: 'New title (optional).' },
+            synopsis: { type: 'string', description: 'New synopsis (optional).' },
+            intendedLevel: { type: 'number', description: 'New intended level (optional).' },
+            summary: { type: 'string', description: 'One sentence describing the change.' },
+          },
+          required: ['id', 'summary'],
+        },
+      },
+      {
+        name: 'create_location',
+        description: 'Create a named location in the campaign — dungeon, town, region, wilderness area, building, or plane.',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            name: { type: 'string', description: 'Location name.' },
+            locationType: { type: 'string', description: 'One of: dungeon, town, region, wilderness, building, plane.' },
+            description: { type: 'string', description: 'What this place is and its purpose in the adventure.' },
+            atmosphere: { type: 'string', description: 'Sights, sounds, smells — the sensory atmosphere (optional).' },
+            parentLocationId: { type: 'number', description: 'ID of a parent location if this is nested inside one (optional).' },
+          },
+          required: ['name'],
+        },
+      },
+      {
+        name: 'update_location',
+        description: 'Update an existing location record.',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            id: { type: 'number', description: 'The location id (from Locations list in your context).' },
+            name: { type: 'string', description: 'New name (optional).' },
+            locationType: { type: 'string', description: 'New type (optional).' },
+            description: { type: 'string', description: 'New description (optional).' },
+            atmosphere: { type: 'string', description: 'New atmosphere (optional).' },
+            summary: { type: 'string', description: 'One sentence describing the change.' },
+          },
+          required: ['id', 'summary'],
+        },
+      },
+      {
+        name: 'create_keyed_area',
+        description: 'Create a numbered/keyed area inside a location (e.g. "1. Entry Hall", "B12. Throne Room"). Use for dungeon rooms and building areas.',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            locationId: { type: 'number', description: 'The location id this area belongs to.' },
+            key: { type: 'string', description: 'The area key/number (e.g. "1", "B12", "A").' },
+            title: { type: 'string', description: 'Area title (e.g. "Entry Hall").' },
+            readAloud: { type: 'string', description: 'Boxed text read aloud to players when they enter.' },
+            dmNotes: { type: 'string', description: 'DM-only notes about secrets, mechanics, and context.' },
+            connections: { type: 'array', items: { type: 'string' }, description: 'Connected area keys (e.g. ["2", "3", "B1"]).' },
+          },
+          required: ['locationId', 'key', 'title'],
+        },
+      },
+      {
+        name: 'update_keyed_area',
+        description: 'Update an existing keyed area.',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            id: { type: 'number', description: 'The keyed area id.' },
+            title: { type: 'string', description: 'New title (optional).' },
+            readAloud: { type: 'string', description: 'New read-aloud text (optional).' },
+            dmNotes: { type: 'string', description: 'New DM notes (optional).' },
+            summary: { type: 'string', description: 'One sentence describing the change.' },
+          },
+          required: ['id', 'summary'],
+        },
+      },
+      {
+        name: 'create_encounter',
+        description: 'Create an encounter — combat, social, exploration, trap, or hazard.',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            name: { type: 'string', description: 'Encounter name.' },
+            encounterType: { type: 'string', description: 'One of: combat, social, exploration, trap, hazard.' },
+            difficulty: { type: 'string', description: 'One of: trivial, easy, medium, hard, deadly.' },
+            summary: { type: 'string', description: 'What this encounter is about.' },
+            readAloud: { type: 'string', description: 'Boxed text to read aloud (optional).' },
+            tactics: { type: 'string', description: 'How enemies or NPCs behave — tactics, morale, goals (optional).' },
+            dmNotes: { type: 'string', description: 'DM notes on variants, adjustments, or context (optional).' },
+            rewardText: { type: 'string', description: 'Treasure, XP, or story rewards (optional).' },
+            locationId: { type: 'number', description: 'Location id to attach this encounter to (optional).' },
+            keyedAreaId: { type: 'number', description: 'Keyed area id to attach this encounter to (optional).' },
+          },
+          required: ['name', 'encounterType'],
+        },
+      },
+      {
+        name: 'update_encounter',
+        description: 'Update an existing encounter.',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            id: { type: 'number', description: 'The encounter id.' },
+            name: { type: 'string', description: 'New name (optional).' },
+            difficulty: { type: 'string', description: 'New difficulty (optional).' },
+            summary: { type: 'string', description: 'New summary (optional).' },
+            tactics: { type: 'string', description: 'New tactics (optional).' },
+            dmNotes: { type: 'string', description: 'New DM notes (optional).' },
+            rewardText: { type: 'string', description: 'New reward text (optional).' },
+            editSummary: { type: 'string', description: 'One sentence describing the change.' },
+          },
+          required: ['id', 'editSummary'],
+        },
+      },
+      {
+        name: 'add_creature_to_encounter',
+        description: 'Add a creature (from SRD or homebrew) to an encounter. Use search_creature first to find the SRD creature id.',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            encounterId: { type: 'number', description: 'The encounter id.' },
+            srdCreatureId: { type: 'number', description: 'SRD creature id (from search_creature). Use this OR campaignCreatureId.' },
+            campaignCreatureId: { type: 'number', description: 'Homebrew campaign creature id. Use this OR srdCreatureId.' },
+            quantity: { type: 'number', description: 'How many of this creature (default 1).' },
+            notes: { type: 'string', description: 'Per-creature notes (renamed, variant stats, special role, etc.).' },
+          },
+          required: ['encounterId'],
+        },
+      },
+      {
+        name: 'search_creature',
+        description: 'Search the SRD creature library by name, type, CR range, or legendary status. Returns up to 50 results.',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            name: { type: 'string', description: 'Partial name to search for (optional).' },
+            type: { type: 'string', description: 'Creature type like "undead", "dragon", "humanoid" (optional).' },
+            crMin: { type: 'string', description: 'Minimum CR as string: "0","1/8","1/4","1/2","1"–"30" (optional).' },
+            crMax: { type: 'string', description: 'Maximum CR as string (optional).' },
+            legendary: { type: 'boolean', description: 'If true, return only legendary creatures (optional).' },
+          },
+        },
+      },
+      {
+        name: 'get_creature',
+        description: 'Get full stat block for a specific SRD creature by id.',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            id: { type: 'number', description: 'The SRD creature id (from search_creature results).' },
+          },
+          required: ['id'],
+        },
+      },
+      {
+        name: 'create_quest',
+        description: 'Create a quest — main story quest, side quest, faction quest, or personal quest.',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            name: { type: 'string', description: 'Quest name.' },
+            questType: { type: 'string', description: 'One of: main, side, faction, personal.' },
+            description: { type: 'string', description: 'What the players need to do and why it matters.' },
+            rewardText: { type: 'string', description: 'What players get for completing it (optional).' },
+            giverCharacterId: { type: 'string', description: 'Character id of the NPC giving this quest (optional).' },
+          },
+          required: ['name'],
+        },
+      },
+      {
+        name: 'update_quest',
+        description: 'Update an existing quest — add clues, update description, change reward, link a giver.',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            id: { type: 'number', description: 'The quest id.' },
+            name: { type: 'string', description: 'New name (optional).' },
+            description: { type: 'string', description: 'New description (optional).' },
+            rewardText: { type: 'string', description: 'New reward text (optional).' },
+            summary: { type: 'string', description: 'One sentence describing the change.' },
+          },
+          required: ['id', 'summary'],
+        },
+      },
+      {
+        name: 'advance_quest',
+        description: 'Change a quest\'s status. Use when players complete, abandon, or discover a quest.',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            id: { type: 'number', description: 'The quest id.' },
+            status: { type: 'string', description: 'New status: active, resolved, abandoned, or unknown-to-party.' },
+            summary: { type: 'string', description: 'One sentence describing why the status changed.' },
+          },
+          required: ['id', 'status', 'summary'],
+        },
+      },
+      {
+        name: 'create_timeline_event',
+        description: 'Add an event to the villain\'s timeline / world clock. These are things that happen in the world whether or not the players intervene.',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            name: { type: 'string', description: 'Event name.' },
+            inWorldDay: { type: 'number', description: 'In-world day number when this event occurs (0 = campaign start).' },
+            description: { type: 'string', description: 'What happens.' },
+            triggerCondition: { type: 'string', description: 'Optional: only happens if players did/didn\'t do something.' },
+            consequence: { type: 'string', description: 'What changes in the world after this event.' },
+          },
+          required: ['name', 'inWorldDay', 'description'],
+        },
+      },
+      {
+        name: 'update_timeline_event',
+        description: 'Update an existing timeline event.',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            id: { type: 'number', description: 'The timeline event id.' },
+            name: { type: 'string', description: 'New name (optional).' },
+            inWorldDay: { type: 'number', description: 'New day (optional).' },
+            description: { type: 'string', description: 'New description (optional).' },
+            triggerCondition: { type: 'string', description: 'New trigger condition (optional).' },
+            consequence: { type: 'string', description: 'New consequence (optional).' },
+            summary: { type: 'string', description: 'One sentence describing the change.' },
+          },
+          required: ['id', 'summary'],
+        },
+      },
+      {
+        name: 'create_random_table',
+        description: 'Create a random table — encounter tables, rumor tables, NPC name tables, weather, trinkets, etc.',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            name: { type: 'string', description: 'Table name (e.g. "Forest Encounter Table").' },
+            tableCategory: { type: 'string', description: 'One of: encounter, npc-names, rumors, weather, trinkets, custom.' },
+            dieSize: { type: 'string', description: 'Die to roll: d4, d6, d8, d10, d12, d20, d100.' },
+            description: { type: 'string', description: 'When and how to use this table (optional).' },
+            entries: {
+              type: 'array',
+              items: { type: 'object', properties: { roll: { type: 'number' }, text: { type: 'string' } }, required: ['roll', 'text'] },
+              description: 'Array of {roll, text} entries. Roll should be 1–dieSize.',
+            },
+          },
+          required: ['name', 'entries'],
+        },
+      },
+      {
+        name: 'roll_on_table',
+        description: 'Roll on an existing random table and return the result.',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            id: { type: 'number', description: 'The random table id.' },
+          },
+          required: ['id'],
+        },
+      },
+      {
+        name: 'create_campaign_magic_item',
+        description: 'Create a unique magic item for this campaign — named swords, quest items, unique wondrous items, etc.',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            name: { type: 'string', description: 'Item name.' },
+            rarity: { type: 'string', description: 'One of: common, uncommon, rare, very rare, legendary, artifact.' },
+            itemType: { type: 'string', description: 'e.g. weapon, armor, wondrous, ring, rod, staff, wand, potion, scroll.' },
+            description: { type: 'string', description: 'What the item does.' },
+            requiresAttunement: { type: 'boolean', description: 'Whether the item requires attunement.' },
+            attunementNotes: { type: 'string', description: 'Attunement restrictions (e.g. "by a wizard") (optional).' },
+            chargesMax: { type: 'number', description: 'Maximum charges (optional).' },
+            rechargeCondition: { type: 'string', description: 'How charges recharge (e.g. "1d6+1 at dawn") (optional).' },
+            properties: { type: 'string', description: 'Mechanical properties (optional).' },
+            lore: { type: 'string', description: 'History and lore (optional).' },
+          },
+          required: ['name', 'description'],
+        },
+      },
+      {
+        name: 'search_magic_item',
+        description: 'Search the SRD magic items library by name or rarity.',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            name: { type: 'string', description: 'Partial name to search for (optional).' },
+            rarity: { type: 'string', description: 'Rarity filter: common, uncommon, rare, very rare, legendary (optional).' },
+          },
+        },
+      },
+      {
+        name: 'create_campaign_creature',
+        description: 'Create a homebrew/custom creature for this campaign.',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            name: { type: 'string', description: 'Creature name.' },
+            size: { type: 'string', description: 'One of: Tiny, Small, Medium, Large, Huge, Gargantuan.' },
+            creatureType: { type: 'string', description: 'e.g. undead, humanoid, dragon, construct.' },
+            alignment: { type: 'string', description: 'e.g. lawful evil, chaotic neutral.' },
+            CR: { type: 'string', description: 'Challenge rating as string: "0","1/8","1/4","1/2","1"–"30".' },
+            AC: { type: 'number', description: 'Armor class.' },
+            HPAverage: { type: 'number', description: 'Average hit points.' },
+            HPDice: { type: 'string', description: 'HP dice expression (e.g. "6d8+12").' },
+            STR: { type: 'number' }, DEX: { type: 'number' }, CON: { type: 'number' },
+            INT: { type: 'number' }, WIS: { type: 'number' }, CHA: { type: 'number' },
+            traits: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, text: { type: 'string' } } }, description: 'Special traits.' },
+            actions: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, text: { type: 'string' } } }, description: 'Actions.' },
+          },
+          required: ['name', 'CR'],
+        },
+      },
+      {
+        name: 'update_campaign_creature',
+        description: 'Update an existing homebrew campaign creature.',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            id: { type: 'number', description: 'The campaign creature id.' },
+            name: { type: 'string', description: 'New name (optional).' },
+            CR: { type: 'string', description: 'New CR (optional).' },
+            AC: { type: 'number', description: 'New AC (optional).' },
+            HPAverage: { type: 'number', description: 'New average HP (optional).' },
+            traits: { type: 'array', items: { type: 'object' }, description: 'New traits array (optional).' },
+            actions: { type: 'array', items: { type: 'object' }, description: 'New actions array (optional).' },
+            summary: { type: 'string', description: 'One sentence describing the change.' },
+          },
+          required: ['id', 'summary'],
+        },
+      },
+      {
+        name: 'create_npc',
+        description: 'Create an NPC in the campaign database with full campaign-specific fields (known info, secrets, faction, location). Preferred over create_character for campaign NPCs.',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            name: { type: 'string', description: 'NPC name.' },
+            role: { type: 'string', description: 'Narrative role: Antagonist, Supporting, Ally, Quest Giver, Merchant, Minor, etc.' },
+            description: { type: 'string', description: 'Physical appearance and personality — what players see.' },
+            notes: { type: 'string', description: 'DM backstory and arc notes.' },
+            knownInfo: { type: 'string', description: 'Information this NPC will share with players (optional).' },
+            secrets: { type: 'string', description: 'Hidden truths about this NPC the players may discover (optional).' },
+            voiceNotes: { type: 'string', description: 'Voice/accent/mannerism notes for RP (optional).' },
+            statBlockRef: { type: 'string', description: 'Reference to stat block (e.g. "SRD: Bandit Captain", "Custom: Vorlag") (optional).' },
+            traits: { type: 'array', items: { type: 'string' }, description: 'Personality traits, bonds, flaws (optional).' },
+          },
+          required: ['name'],
+        },
+      },
+      {
+        name: 'update_npc',
+        description: 'Update an existing NPC with campaign-specific fields.',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            id: { type: 'string', description: 'The character id (from NPCs list in your context).' },
+            name: { type: 'string', description: 'New name (optional).' },
+            role: { type: 'string', description: 'New role (optional).' },
+            description: { type: 'string', description: 'New description (optional).' },
+            notes: { type: 'string', description: 'New notes (optional).' },
+            knownInfo: { type: 'string', description: 'New known info (optional).' },
+            secrets: { type: 'string', description: 'New secrets (optional).' },
+            voiceNotes: { type: 'string', description: 'New voice notes (optional).' },
+            statBlockRef: { type: 'string', description: 'New stat block reference (optional).' },
+            traits: { type: 'array', items: { type: 'string' }, description: 'New traits array (optional).' },
+            summary: { type: 'string', description: 'One sentence describing the change.' },
+          },
+          required: ['id', 'summary'],
+        },
+      },
+      {
+        name: 'search_spell',
+        description: 'Search the SRD spell library by name, level, school, or class.',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            name: { type: 'string', description: 'Partial spell name to search for (optional).' },
+            level: { type: 'number', description: 'Spell level 0–9 (optional).' },
+            school: { type: 'string', description: 'School of magic: evocation, necromancy, conjuration, etc. (optional).' },
+            class: { type: 'string', description: 'Class name: wizard, cleric, druid, sorcerer, etc. (optional).' },
+          },
+        },
+      },
+    ] : []),
   ]
 
   // ── Tool executor ─────────────────────────────────────────────────────────
@@ -1097,6 +1597,461 @@ ${worldList}`
       }
       return `Poll batch complete. Created ${created} poll${created === 1 ? '' : 's'}. ${summary}`
     }
+    // ── Campaign tool handlers ────────────────────────────────────────────
+    if (name === 'create_session') {
+      const { title, synopsis, intendedLevel } = input as { title: string; synopsis?: string; intendedLevel?: number }
+      if (!title?.trim()) return 'Error: title is required.'
+      const maxOrder = await prisma.chapter.findFirst({
+        where: { projectId: project.id }, orderBy: { order: 'desc' }, select: { order: true },
+      })
+      const part = await prisma.chapter.create({
+        data: {
+          projectId: project.id,
+          title: title.trim(),
+          content: '',
+          synopsis: synopsis?.trim() ?? '',
+          order: (maxOrder?.order ?? 0) + 1,
+          ...(intendedLevel != null ? { intendedLevel } : {}),
+        },
+      })
+      return `Created adventure part "${part.title}" (id: ${part.id})${intendedLevel != null ? ` [Level ${intendedLevel}]` : ''}`
+    }
+    if (name === 'update_session') {
+      const { id, title, synopsis, intendedLevel, summary } = input as { id: string; title?: string; synopsis?: string; intendedLevel?: number; summary: string }
+      const chapter = await prisma.chapter.findUnique({ where: { id } })
+      if (!chapter || chapter.projectId !== project.id) return `Error: adventure part "${id}" not found.`
+      await prisma.chapter.update({
+        where: { id },
+        data: {
+          ...(title ? { title: title.trim() } : {}),
+          ...(synopsis != null ? { synopsis: synopsis.trim() } : {}),
+          ...(intendedLevel != null ? { intendedLevel } : {}),
+        },
+      })
+      return `Updated adventure part "${title?.trim() ?? chapter.title}". ${summary}`
+    }
+    if (name === 'create_location') {
+      const { name: locName, locationType, description, atmosphere, parentLocationId } = input as {
+        name: string; locationType?: string; description?: string; atmosphere?: string; parentLocationId?: number
+      }
+      if (!locName?.trim()) return 'Error: name is required.'
+      const loc = await prisma.location.create({
+        data: {
+          projectId: project.id,
+          name: locName.trim(),
+          locationType: locationType?.trim() ?? 'dungeon',
+          description: description?.trim() ?? '',
+          atmosphere: atmosphere?.trim() ?? '',
+          ...(parentLocationId != null ? { parentLocationId } : {}),
+        },
+      })
+      return `Created location "${loc.name}" (id: ${loc.id}, type: ${loc.locationType})`
+    }
+    if (name === 'update_location') {
+      const { id, name: locName, locationType, description, atmosphere, summary } = input as {
+        id: number; name?: string; locationType?: string; description?: string; atmosphere?: string; summary: string
+      }
+      const loc = await prisma.location.findUnique({ where: { id } })
+      if (!loc || loc.projectId !== project.id) return `Error: location "${id}" not found.`
+      await prisma.location.update({
+        where: { id },
+        data: {
+          ...(locName ? { name: locName.trim() } : {}),
+          ...(locationType ? { locationType: locationType.trim() } : {}),
+          ...(description != null ? { description: description.trim() } : {}),
+          ...(atmosphere != null ? { atmosphere: atmosphere.trim() } : {}),
+        },
+      })
+      return `Updated location "${locName?.trim() ?? loc.name}". ${summary}`
+    }
+    if (name === 'create_keyed_area') {
+      const { locationId, key, title, readAloud, dmNotes, connections } = input as {
+        locationId: number; key: string; title: string; readAloud?: string; dmNotes?: string; connections?: string[]
+      }
+      if (!locationId) return 'Error: locationId is required.'
+      if (!key?.trim()) return 'Error: key is required.'
+      if (!title?.trim()) return 'Error: title is required.'
+      const loc = await prisma.location.findUnique({ where: { id: locationId } })
+      if (!loc || loc.projectId !== project.id) return `Error: location "${locationId}" not found.`
+      const maxOrder = await prisma.keyedArea.findFirst({
+        where: { locationId }, orderBy: { order: 'desc' }, select: { order: true },
+      })
+      const area = await prisma.keyedArea.create({
+        data: {
+          locationId,
+          key: key.trim(),
+          title: title.trim(),
+          readAloud: readAloud?.trim() ?? '',
+          dmNotes: dmNotes?.trim() ?? '',
+          connections: JSON.stringify(connections ?? []),
+          order: (maxOrder?.order ?? 0) + 1,
+        },
+      })
+      return `Created keyed area "${area.key}. ${area.title}" (id: ${area.id}) in ${loc.name}`
+    }
+    if (name === 'update_keyed_area') {
+      const { id, title, readAloud, dmNotes, summary } = input as {
+        id: number; title?: string; readAloud?: string; dmNotes?: string; summary: string
+      }
+      const area = await prisma.keyedArea.findUnique({ where: { id } })
+      if (!area) return `Error: keyed area "${id}" not found.`
+      await prisma.keyedArea.update({
+        where: { id },
+        data: {
+          ...(title ? { title: title.trim() } : {}),
+          ...(readAloud != null ? { readAloud: readAloud.trim() } : {}),
+          ...(dmNotes != null ? { dmNotes: dmNotes.trim() } : {}),
+        },
+      })
+      return `Updated keyed area "${title?.trim() ?? area.title}". ${summary}`
+    }
+    if (name === 'create_encounter') {
+      const { name: encName, encounterType, difficulty, summary: encSummary, readAloud, tactics, dmNotes, rewardText, locationId, keyedAreaId } = input as {
+        name: string; encounterType?: string; difficulty?: string; summary?: string; readAloud?: string; tactics?: string; dmNotes?: string; rewardText?: string; locationId?: number; keyedAreaId?: number
+      }
+      if (!encName?.trim()) return 'Error: name is required.'
+      const enc = await prisma.encounter.create({
+        data: {
+          projectId: project.id,
+          name: encName.trim(),
+          encounterType: encounterType?.trim() ?? 'combat',
+          difficulty: difficulty?.trim() ?? 'medium',
+          summary: encSummary?.trim() ?? '',
+          readAloud: readAloud?.trim() ?? '',
+          tactics: tactics?.trim() ?? '',
+          dmNotes: dmNotes?.trim() ?? '',
+          rewardText: rewardText?.trim() ?? '',
+          ...(locationId != null ? { locationId } : {}),
+          ...(keyedAreaId != null ? { keyedAreaId } : {}),
+        },
+      })
+      return `Created ${enc.encounterType} encounter "${enc.name}" (id: ${enc.id}, difficulty: ${enc.difficulty})`
+    }
+    if (name === 'update_encounter') {
+      const { id, name: encName, difficulty, summary: encSummary, tactics, dmNotes, rewardText, editSummary } = input as {
+        id: number; name?: string; difficulty?: string; summary?: string; tactics?: string; dmNotes?: string; rewardText?: string; editSummary: string
+      }
+      const enc = await prisma.encounter.findUnique({ where: { id } })
+      if (!enc || enc.projectId !== project.id) return `Error: encounter "${id}" not found.`
+      await prisma.encounter.update({
+        where: { id },
+        data: {
+          ...(encName ? { name: encName.trim() } : {}),
+          ...(difficulty ? { difficulty: difficulty.trim() } : {}),
+          ...(encSummary != null ? { summary: encSummary.trim() } : {}),
+          ...(tactics != null ? { tactics: tactics.trim() } : {}),
+          ...(dmNotes != null ? { dmNotes: dmNotes.trim() } : {}),
+          ...(rewardText != null ? { rewardText: rewardText.trim() } : {}),
+        },
+      })
+      return `Updated encounter "${encName?.trim() ?? enc.name}". ${editSummary}`
+    }
+    if (name === 'add_creature_to_encounter') {
+      const { encounterId, srdCreatureId, campaignCreatureId, quantity, notes } = input as {
+        encounterId: number; srdCreatureId?: number; campaignCreatureId?: number; quantity?: number; notes?: string
+      }
+      if (!encounterId) return 'Error: encounterId is required.'
+      if (!srdCreatureId && !campaignCreatureId) return 'Error: srdCreatureId or campaignCreatureId is required.'
+      const enc = await prisma.encounter.findUnique({ where: { id: encounterId } })
+      if (!enc || enc.projectId !== project.id) return `Error: encounter "${encounterId}" not found.`
+      const ec = await prisma.encounterCreature.create({
+        data: {
+          encounterId,
+          quantity: quantity ?? 1,
+          ...(srdCreatureId != null ? { srdCreatureId } : {}),
+          ...(campaignCreatureId != null ? { campaignCreatureId } : {}),
+          notes: notes?.trim() ?? '',
+        },
+      })
+      let creatureName = `creature id ${srdCreatureId ?? campaignCreatureId}`
+      if (srdCreatureId) {
+        const srd = await prisma.srdCreature.findUnique({ where: { id: srdCreatureId }, select: { name: true } })
+        if (srd) creatureName = srd.name
+      }
+      return `Added ${ec.quantity}× ${creatureName} to encounter "${enc.name}"`
+    }
+    if (name === 'search_creature') {
+      const { name: cName, type, crMin, crMax, legendary } = input as {
+        name?: string; type?: string; crMin?: string; crMax?: string; legendary?: boolean
+      }
+      const CR_ORDER = ['0','1/8','1/4','1/2','1','2','3','4','5','6','7','8','9','10','11','12','13','14','15','16','17','18','19','20','21','22','23','24','30']
+      const creatures = await prisma.srdCreature.findMany({
+        where: {
+          ...(cName ? { name: { contains: cName } } : {}),
+          ...(type ? { creatureType: { contains: type } } : {}),
+          ...(legendary === true ? { isLegendary: true } : {}),
+        },
+        orderBy: { name: 'asc' },
+        take: 50,
+        select: { id: true, name: true, size: true, creatureType: true, alignment: true, CR: true, xpValue: true, AC: true, HPAverage: true, isLegendary: true },
+      })
+      let results = creatures
+      if (crMin || crMax) {
+        const minIdx = crMin ? CR_ORDER.indexOf(crMin) : 0
+        const maxIdx = crMax ? CR_ORDER.indexOf(crMax) : CR_ORDER.length - 1
+        results = creatures.filter(c => { const idx = CR_ORDER.indexOf(c.CR); return idx >= minIdx && idx <= maxIdx })
+      }
+      if (results.length === 0) return 'No creatures found matching those criteria.'
+      return results.map(c => `- **${c.name}** (id: ${c.id}) | CR ${c.CR} | ${c.size} ${c.creatureType} | AC ${c.AC}, HP ${c.HPAverage}${c.isLegendary ? ' | Legendary' : ''}`).join('\n')
+    }
+    if (name === 'get_creature') {
+      const { id } = input as { id: number }
+      const creature = await prisma.srdCreature.findUnique({ where: { id } })
+      if (!creature) return `Error: SRD creature "${id}" not found.`
+      return `**${creature.name}** (CR ${creature.CR})\n${JSON.stringify(creature, null, 2)}`
+    }
+    if (name === 'create_quest') {
+      const { name: qName, questType, description, rewardText, giverCharacterId } = input as {
+        name: string; questType?: string; description?: string; rewardText?: string; giverCharacterId?: string
+      }
+      if (!qName?.trim()) return 'Error: name is required.'
+      const quest = await prisma.quest.create({
+        data: {
+          projectId: project.id,
+          name: qName.trim(),
+          questType: questType?.trim() ?? 'main',
+          description: description?.trim() ?? '',
+          rewardText: rewardText?.trim() ?? '',
+          ...(giverCharacterId ? { giverCharacterId } : {}),
+        },
+      })
+      return `Created ${quest.questType} quest "${quest.name}" (id: ${quest.id})`
+    }
+    if (name === 'update_quest') {
+      const { id, name: qName, description, rewardText, summary } = input as {
+        id: number; name?: string; description?: string; rewardText?: string; summary: string
+      }
+      const quest = await prisma.quest.findUnique({ where: { id } })
+      if (!quest || quest.projectId !== project.id) return `Error: quest "${id}" not found.`
+      await prisma.quest.update({
+        where: { id },
+        data: {
+          ...(qName ? { name: qName.trim() } : {}),
+          ...(description != null ? { description: description.trim() } : {}),
+          ...(rewardText != null ? { rewardText: rewardText.trim() } : {}),
+        },
+      })
+      return `Updated quest "${qName?.trim() ?? quest.name}". ${summary}`
+    }
+    if (name === 'advance_quest') {
+      const { id, status, summary } = input as { id: number; status: string; summary: string }
+      const quest = await prisma.quest.findUnique({ where: { id } })
+      if (!quest || quest.projectId !== project.id) return `Error: quest "${id}" not found.`
+      await prisma.quest.update({ where: { id }, data: { status: status.trim() } })
+      return `Quest "${quest.name}" → ${status}. ${summary}`
+    }
+    if (name === 'create_timeline_event') {
+      const { name: evName, inWorldDay, description, triggerCondition, consequence } = input as {
+        name: string; inWorldDay: number; description: string; triggerCondition?: string; consequence?: string
+      }
+      if (!evName?.trim()) return 'Error: name is required.'
+      const ev = await prisma.timelineEvent.create({
+        data: {
+          projectId: project.id,
+          name: evName.trim(),
+          inWorldDay: inWorldDay ?? 0,
+          description: description?.trim() ?? '',
+          triggerCondition: triggerCondition?.trim() ?? '',
+          consequence: consequence?.trim() ?? '',
+        },
+      })
+      return `Created timeline event "${ev.name}" on day ${ev.inWorldDay} (id: ${ev.id})`
+    }
+    if (name === 'update_timeline_event') {
+      const { id, name: evName, inWorldDay, description, triggerCondition, consequence, summary } = input as {
+        id: number; name?: string; inWorldDay?: number; description?: string; triggerCondition?: string; consequence?: string; summary: string
+      }
+      const ev = await prisma.timelineEvent.findUnique({ where: { id } })
+      if (!ev || ev.projectId !== project.id) return `Error: timeline event "${id}" not found.`
+      await prisma.timelineEvent.update({
+        where: { id },
+        data: {
+          ...(evName ? { name: evName.trim() } : {}),
+          ...(inWorldDay != null ? { inWorldDay } : {}),
+          ...(description != null ? { description: description.trim() } : {}),
+          ...(triggerCondition != null ? { triggerCondition: triggerCondition.trim() } : {}),
+          ...(consequence != null ? { consequence: consequence.trim() } : {}),
+        },
+      })
+      return `Updated timeline event "${evName?.trim() ?? ev.name}". ${summary}`
+    }
+    if (name === 'create_random_table') {
+      const { name: tName, tableCategory, dieSize, description, entries } = input as {
+        name: string; tableCategory?: string; dieSize?: string; description?: string; entries: Array<{ roll: number; text: string }>
+      }
+      if (!tName?.trim()) return 'Error: name is required.'
+      if (!Array.isArray(entries) || entries.length === 0) return 'Error: entries must contain at least one entry.'
+      const table = await prisma.randomTable.create({
+        data: {
+          projectId: project.id,
+          name: tName.trim(),
+          tableCategory: tableCategory?.trim() ?? 'custom',
+          dieSize: dieSize?.trim() ?? 'd20',
+          description: description?.trim() ?? '',
+          entries: JSON.stringify(entries),
+        },
+      })
+      return `Created random table "${table.name}" (id: ${table.id}) with ${entries.length} entries`
+    }
+    if (name === 'roll_on_table') {
+      const { id } = input as { id: number }
+      const table = await prisma.randomTable.findUnique({ where: { id } })
+      if (!table || table.projectId !== project.id) return `Error: random table "${id}" not found.`
+      let entries: Array<{ roll: number; text: string }> = []
+      try { entries = JSON.parse(table.entries) } catch { return 'Error: table entries are malformed.' }
+      if (entries.length === 0) return 'Error: table has no entries.'
+      const dieSizes: Record<string, number> = { d4: 4, d6: 6, d8: 8, d10: 10, d12: 12, d20: 20, d100: 100 }
+      const max = dieSizes[table.dieSize] ?? 20
+      const roll = Math.floor(Math.random() * max) + 1
+      const sorted = [...entries].sort((a, b) => a.roll - b.roll)
+      const result = sorted.find(e => e.roll >= roll) ?? sorted[sorted.length - 1]
+      return `Rolled ${table.dieSize} on "${table.name}": **${roll}** → ${result.text}`
+    }
+    if (name === 'create_campaign_magic_item') {
+      const { name: iName, rarity, itemType, description, requiresAttunement, attunementNotes, chargesMax, rechargeCondition, properties, lore } = input as {
+        name: string; rarity?: string; itemType?: string; description: string; requiresAttunement?: boolean; attunementNotes?: string; chargesMax?: number; rechargeCondition?: string; properties?: string; lore?: string
+      }
+      if (!iName?.trim()) return 'Error: name is required.'
+      const item = await prisma.campaignMagicItem.create({
+        data: {
+          projectId: project.id,
+          name: iName.trim(),
+          rarity: rarity?.trim() ?? 'uncommon',
+          itemType: itemType?.trim() ?? 'wondrous',
+          description: description?.trim() ?? '',
+          requiresAttunement: requiresAttunement ?? false,
+          attunementNotes: attunementNotes?.trim() ?? '',
+          ...(chargesMax != null ? { chargesMax } : {}),
+          rechargeCondition: rechargeCondition?.trim() ?? '',
+          properties: properties?.trim() ?? '',
+          lore: lore?.trim() ?? '',
+        },
+      })
+      return `Created magic item "${item.name}" (id: ${item.id}, rarity: ${item.rarity})`
+    }
+    if (name === 'search_magic_item') {
+      const { name: iName, rarity } = input as { name?: string; rarity?: string }
+      const items = await prisma.srdMagicItem.findMany({
+        where: {
+          ...(iName ? { name: { contains: iName } } : {}),
+          ...(rarity ? { rarity } : {}),
+        },
+        orderBy: { name: 'asc' },
+        take: 50,
+      })
+      if (items.length === 0) return 'No SRD magic items found matching those criteria.'
+      return items.map(i => `- **${i.name}** (id: ${i.id}) | ${i.rarity} ${i.itemType}${i.requiresAttunement ? ' | Requires attunement' : ''}`).join('\n')
+    }
+    if (name === 'create_campaign_creature') {
+      const { name: cName, size, creatureType, alignment, CR, AC, HPAverage, HPDice, STR, DEX, CON, INT, WIS, CHA, traits, actions } = input as {
+        name: string; size?: string; creatureType?: string; alignment?: string; CR: string; AC?: number; HPAverage?: number; HPDice?: string; STR?: number; DEX?: number; CON?: number; INT?: number; WIS?: number; CHA?: number; traits?: Array<{name: string; text: string}>; actions?: Array<{name: string; text: string}>
+      }
+      if (!cName?.trim()) return 'Error: name is required.'
+      const creature = await prisma.campaignCreature.create({
+        data: {
+          projectId: project.id,
+          name: cName.trim(),
+          size: size?.trim() ?? 'Medium',
+          creatureType: creatureType?.trim() ?? '',
+          alignment: alignment?.trim() ?? '',
+          CR: CR?.trim() ?? '0',
+          AC: AC ?? 10,
+          HPAverage: HPAverage ?? 1,
+          HPDice: HPDice?.trim() ?? '',
+          STR: STR ?? 10, DEX: DEX ?? 10, CON: CON ?? 10,
+          INT: INT ?? 10, WIS: WIS ?? 10, CHA: CHA ?? 10,
+          traits: JSON.stringify(traits ?? []),
+          actions: JSON.stringify(actions ?? []),
+        },
+      })
+      return `Created homebrew creature "${creature.name}" (id: ${creature.id}, CR ${creature.CR})`
+    }
+    if (name === 'update_campaign_creature') {
+      const { id, name: cName, CR, AC, HPAverage, traits, actions, summary } = input as {
+        id: number; name?: string; CR?: string; AC?: number; HPAverage?: number; traits?: Array<object>; actions?: Array<object>; summary: string
+      }
+      const creature = await prisma.campaignCreature.findUnique({ where: { id } })
+      if (!creature || creature.projectId !== project.id) return `Error: campaign creature "${id}" not found.`
+      await prisma.campaignCreature.update({
+        where: { id },
+        data: {
+          ...(cName ? { name: cName.trim() } : {}),
+          ...(CR ? { CR: CR.trim() } : {}),
+          ...(AC != null ? { AC } : {}),
+          ...(HPAverage != null ? { HPAverage } : {}),
+          ...(traits != null ? { traits: JSON.stringify(traits) } : {}),
+          ...(actions != null ? { actions: JSON.stringify(actions) } : {}),
+        },
+      })
+      return `Updated campaign creature "${cName?.trim() ?? creature.name}". ${summary}`
+    }
+    if (name === 'create_npc') {
+      const { name: npcName, role, description, notes, knownInfo, secrets, voiceNotes, statBlockRef, traits } = input as {
+        name: string; role?: string; description?: string; notes?: string; knownInfo?: string; secrets?: string; voiceNotes?: string; statBlockRef?: string; traits?: string[]
+      }
+      if (!npcName?.trim()) return 'Error: name is required.'
+      const existing = await prisma.character.findFirst({ where: { projectId: project.id, name: npcName.trim() } })
+      if (existing) return `Error: NPC "${npcName.trim()}" already exists with id ${existing.id}. Use update_npc instead.`
+      const npc = await prisma.character.create({
+        data: {
+          projectId: project.id,
+          name: npcName.trim(),
+          role: role?.trim() || 'Supporting',
+          description: description?.trim() ?? '',
+          notes: notes?.trim() ?? '',
+          traits: JSON.stringify((traits ?? []).map(t => String(t).trim()).filter(Boolean)),
+          knownInfo: knownInfo?.trim() ?? '',
+          secrets: secrets?.trim() ?? '',
+          voiceNotes: voiceNotes?.trim() ?? '',
+          statBlockRef: statBlockRef?.trim() ?? '',
+        },
+      })
+      return `Created NPC "${npc.name}" (id: ${npc.id})`
+    }
+    if (name === 'update_npc') {
+      const { id, name: npcName, role, description, notes, knownInfo, secrets, voiceNotes, statBlockRef, traits, summary } = input as {
+        id: string; name?: string; role?: string; description?: string; notes?: string; knownInfo?: string; secrets?: string; voiceNotes?: string; statBlockRef?: string; traits?: string[]; summary: string
+      }
+      const npc = await prisma.character.findUnique({ where: { id } })
+      if (!npc || npc.projectId !== project.id) return `Error: NPC "${id}" not found in this project.`
+      await prisma.character.update({
+        where: { id },
+        data: {
+          ...(npcName ? { name: npcName.trim() } : {}),
+          ...(role ? { role: role.trim() } : {}),
+          ...(description != null ? { description: description.trim() } : {}),
+          ...(notes != null ? { notes: notes.trim() } : {}),
+          ...(traits != null ? { traits: JSON.stringify(traits.map(t => String(t).trim()).filter(Boolean)) } : {}),
+          ...(knownInfo != null ? { knownInfo: knownInfo.trim() } : {}),
+          ...(secrets != null ? { secrets: secrets.trim() } : {}),
+          ...(voiceNotes != null ? { voiceNotes: voiceNotes.trim() } : {}),
+          ...(statBlockRef != null ? { statBlockRef: statBlockRef.trim() } : {}),
+        },
+      })
+      return `Updated NPC "${npcName?.trim() ?? npc.name}". ${summary}`
+    }
+    if (name === 'search_spell') {
+      const { name: sName, level, school, class: className } = input as {
+        name?: string; level?: number; school?: string; class?: string
+      }
+      const spells = await prisma.srdSpell.findMany({
+        where: {
+          ...(sName ? { name: { contains: sName } } : {}),
+          ...(level != null ? { level } : {}),
+          ...(school ? { school: { contains: school } } : {}),
+        },
+        orderBy: [{ level: 'asc' }, { name: 'asc' }],
+        take: 50,
+      })
+      const results = className
+        ? spells.filter(s => {
+            try { return (JSON.parse(s.classes) as string[]).some(c => c.toLowerCase().includes(className.toLowerCase())) }
+            catch { return false }
+          })
+        : spells
+      if (results.length === 0) return 'No spells found matching those criteria.'
+      return results.map(s => `- **${s.name}** (id: ${s.id}) | Level ${s.level} ${s.school}${s.concentration ? ' (Concentration)' : ''}${s.ritual ? ' (Ritual)' : ''} | ${s.castingTime}, ${s.range}`).join('\n')
+    }
     return `Unknown tool: ${name}`
   }
 
@@ -1143,7 +2098,7 @@ ${worldList}`
 
     pollCreated = toolCallsMade.some(tc => tc.name === 'create_poll' || tc.name === 'create_polls_batch')
     const editLog = toolCallsMade
-      .filter(tc => ['update_document', 'patch_document', 'create_chapter', 'create_character', 'update_character', 'delete_character', 'sync_characters_batch', 'create_world_entry', 'update_world_entry', 'delete_world_entry', 'sync_world_entries_batch', 'update_chapter', 'patch_chapter', 'create_poll', 'create_polls_batch', 'assign_task', 'assign_tasks_batch'].includes(tc.name))
+      .filter(tc => ['update_document', 'patch_document', 'create_chapter', 'create_character', 'update_character', 'delete_character', 'sync_characters_batch', 'create_world_entry', 'update_world_entry', 'delete_world_entry', 'sync_world_entries_batch', 'update_chapter', 'patch_chapter', 'create_poll', 'create_polls_batch', 'assign_task', 'assign_tasks_batch', 'create_session', 'update_session', 'create_location', 'create_keyed_area', 'create_encounter', 'update_encounter', 'add_creature_to_encounter', 'create_quest', 'update_quest', 'advance_quest', 'create_timeline_event', 'update_timeline_event', 'create_random_table', 'create_campaign_magic_item', 'create_campaign_creature', 'create_npc', 'update_npc'].includes(tc.name))
       .map(tc => {
         if (tc.name === 'create_poll') {
           const { question, options } = tc.input as { question: string; options: string[] }
@@ -1195,6 +2150,57 @@ ${worldList}`
         if (tc.name === 'update_chapter' || tc.name === 'patch_chapter') {
           const chapter = chapters.find(c => c.id === (tc.input as { id: string }).id)
           return `📖 Updated chapter **"${chapter?.title ?? (tc.input as { id: string }).id}"**: ${(tc.input as { summary: string }).summary}`
+        }
+        if (tc.name === 'create_session') {
+          return `📖 Created adventure part **"${(tc.input as { title: string }).title}"**`
+        }
+        if (tc.name === 'update_session') {
+          return `📖 Updated adventure part: ${(tc.input as { summary: string }).summary}`
+        }
+        if (tc.name === 'create_location') {
+          return `🗺️ Created location **"${(tc.input as { name: string }).name}"**`
+        }
+        if (tc.name === 'create_keyed_area') {
+          return `🗺️ Created area **${(tc.input as { key: string }).key}. ${(tc.input as { title: string }).title}**`
+        }
+        if (tc.name === 'create_encounter') {
+          return `⚔️ Created encounter **"${(tc.input as { name: string }).name}"**`
+        }
+        if (tc.name === 'update_encounter') {
+          return `⚔️ Updated encounter: ${(tc.input as { editSummary: string }).editSummary}`
+        }
+        if (tc.name === 'add_creature_to_encounter') {
+          return `⚔️ Added creature to encounter`
+        }
+        if (tc.name === 'create_quest') {
+          return `📜 Created quest **"${(tc.input as { name: string }).name}"**`
+        }
+        if (tc.name === 'update_quest') {
+          return `📜 Updated quest: ${(tc.input as { summary: string }).summary}`
+        }
+        if (tc.name === 'advance_quest') {
+          return `📜 Quest status updated: ${(tc.input as { summary: string }).summary}`
+        }
+        if (tc.name === 'create_timeline_event') {
+          return `⏱️ Added timeline event **"${(tc.input as { name: string }).name}"** on day ${(tc.input as { inWorldDay: number }).inWorldDay}`
+        }
+        if (tc.name === 'update_timeline_event') {
+          return `⏱️ Updated timeline event: ${(tc.input as { summary: string }).summary}`
+        }
+        if (tc.name === 'create_random_table') {
+          return `🎲 Created random table **"${(tc.input as { name: string }).name}"**`
+        }
+        if (tc.name === 'create_campaign_magic_item') {
+          return `✨ Created magic item **"${(tc.input as { name: string }).name}"**`
+        }
+        if (tc.name === 'create_campaign_creature') {
+          return `🐉 Created homebrew creature **"${(tc.input as { name: string }).name}"**`
+        }
+        if (tc.name === 'create_npc') {
+          return `👤 Created NPC **"${(tc.input as { name: string }).name}"**`
+        }
+        if (tc.name === 'update_npc') {
+          return `👤 Updated NPC: ${(tc.input as { summary: string }).summary}`
         }
         return `📝 Updated **${(tc.input as { key: string }).key}**: ${(tc.input as { summary: string }).summary}`
       })
