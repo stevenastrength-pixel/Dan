@@ -121,13 +121,14 @@ export async function POST(
   ])
 
   // Campaign-only context
-  const [campaignQuests, campaignTimeline, campaignLocations] = isCampaign
+  const [campaignQuests, campaignTimeline, campaignLocations, campaignCreatures] = isCampaign
     ? await Promise.all([
         prisma.quest.findMany({ where: { projectId: project.id }, orderBy: [{ questType: 'asc' }, { name: 'asc' }] }),
         prisma.timelineEvent.findMany({ where: { projectId: project.id }, orderBy: { inWorldDay: 'asc' }, take: 20 }),
         prisma.location.findMany({ where: { projectId: project.id }, orderBy: { name: 'asc' }, select: { id: true, name: true, locationType: true } }),
+        prisma.campaignCreature.findMany({ where: { projectId: project.id }, orderBy: { name: 'asc' }, select: { id: true, name: true, CR: true, AC: true, HPAverage: true, creatureType: true, size: true } }),
       ])
-    : [[], [], []]
+    : [[], [], [], []]
 
   const provider = (settings?.aiProvider ?? 'anthropic') as 'anthropic' | 'openai' | 'openclaw'
   const contextDocs = await loadContextFiles(settings?.contextFiles ?? '[]')
@@ -203,6 +204,12 @@ export async function POST(
         .join('\n')
     : 'No locations defined yet.'
 
+  const homebrewCreatureList = (campaignCreatures as Array<{id: number; name: string; CR: string; AC: number; HPAverage: number; creatureType: string; size: string}>).length > 0
+    ? (campaignCreatures as Array<{id: number; name: string; CR: string; AC: number; HPAverage: number; creatureType: string; size: string}>)
+        .map(c => `- **${c.name}** (id: ${c.id}, CR ${c.CR}, AC ${c.AC}, HP ${c.HPAverage}${c.creatureType ? `, ${c.creatureType}` : ''}${c.size ? `, ${c.size}` : ''})`)
+        .join('\n')
+    : 'No homebrew creatures defined yet.'
+
   const systemPrompt = isCampaign
     ? `You are Daneel, GM co-author for the campaign "${project.name}". You are part of a collaborative team chat — multiple people use this to build the campaign book together.${project.description ? `\nCampaign: ${project.description}` : ''}
 ${campaignMeta}
@@ -226,7 +233,7 @@ You are building a published-quality 5e campaign book — everything that would 
 - create_timeline_event for the villain's advancing plan
 - create_random_table for encounter/rumor/weather tables
 - create_campaign_magic_item for unique items
-- create_campaign_creature for custom homebrew monsters — returns the creature id, which you then pass to add_creature_to_encounter
+- create_campaign_creature for custom homebrew monsters — returns the creature id, which you then pass to add_creature_to_encounter. ALWAYS check the Homebrew Creatures list in context first — if the creature already exists, use update_campaign_creature instead of creating a duplicate
 - create_npc to add NPCs (same as create_character but with campaign fields)
 
 ## CRITICAL: Document editing
@@ -260,7 +267,11 @@ ${worldList}
 ${questList}
 
 ## Timeline (villain's advancing plan)
-${timelineList}`
+${timelineList}
+
+## Homebrew Creatures
+These are custom monsters already created for this campaign. Reference their ids when calling add_creature_to_encounter. Use update_campaign_creature to modify an existing one rather than creating a duplicate.
+${homebrewCreatureList}`
     : `You are Daneel, the AI assistant for the writing project "${project.name}". You are part of a collaborative team chat — multiple writers use this chat to coordinate.${project.description ? `\nProject: ${project.description}` : ''}
 
 You only respond when directly addressed with @Daneel. Keep responses focused and useful. You can see who said what by looking at the author field in each message.
