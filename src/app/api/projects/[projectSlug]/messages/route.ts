@@ -234,6 +234,10 @@ You are building a published-quality 5e campaign book — everything that would 
 - create_random_table for encounter/rumor/weather tables
 - create_campaign_magic_item for unique items
 - create_campaign_creature for custom homebrew monsters — returns the creature id, which you then pass to add_creature_to_encounter. ALWAYS check the Homebrew Creatures list in context first — if the creature already exists, use update_campaign_creature instead of creating a duplicate
+
+## CRITICAL: Homebrew creatures MUST be created with the tool
+When the user asks you to create a homebrew/custom monster or creature, you MUST call the create_campaign_creature tool — writing a stat block in prose has NO effect and the creature will NOT appear in the database. The ONLY way to create a creature is to call the tool. Call the tool first, then confirm briefly. If you describe a creature without calling the tool, you have failed.
+When the user asks to add a creature to an encounter: call create_campaign_creature (or search_creature for SRD monsters) to get a valid id, THEN call add_creature_to_encounter with that id. Never call add_creature_to_encounter without a confirmed id from a prior tool call in the same response.
 - create_npc to add NPCs (same as create_character but with campaign fields)
 
 ## CRITICAL: Document editing
