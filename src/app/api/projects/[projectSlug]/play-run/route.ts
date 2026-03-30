@@ -1,8 +1,11 @@
 export const dynamic = 'force-dynamic'
+export const maxDuration = 60
 
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getUserFromRequest } from '@/lib/auth'
+import Anthropic from '@anthropic-ai/sdk'
+import OpenAI from 'openai'
 
 // GET: fetch active run with players, log (last 100), combatants
 export async function GET(request: Request, { params }: { params: { projectSlug: string } }) {
@@ -42,8 +45,9 @@ export async function POST(request: Request, { params }: { params: { projectSlug
 
   // Get or create active run
   let run = await prisma.playRun.findFirst({ where: { projectId: project.id, state: 'active' } })
+  const isNewRun = !run
   if (!run) {
-    // Find starting location (first keyed area with order = 0, or just any location)
+    // Find starting location
     const firstLocation = await prisma.location.findFirst({
       where: { projectId: project.id, parentLocationId: null },
       orderBy: { name: 'asc' },
@@ -55,6 +59,94 @@ export async function POST(request: Request, { params }: { params: { projectSlug
         currentLocationId: firstLocation?.id ?? null,
       },
     })
+
+    // Generate cinematic opening intro
+    try {
+      const settings = await prisma.settings.findFirst()
+      const provider = settings?.aiProvider ?? 'anthropic'
+      const aiModel = settings?.aiModel?.trim()
+
+      if (aiModel || provider === 'openclaw') {
+        const documents = await prisma.projectDocument.findMany({ where: { projectId: project.id }, take: 3 })
+        const docSummary = documents.filter(d => d.content.trim())
+          .map(d => `${d.title}: ${d.content.slice(0, 500)}`).join('\n\n')
+
+        let startingAreaContext = ''
+        if (firstLocation) {
+          const firstArea = await prisma.keyedArea.findFirst({
+            where: { locationId: firstLocation.id },
+            orderBy: { order: 'asc' },
+          })
+          if (firstArea?.readAloud) startingAreaContext = `\nOpening scene: ${firstArea.readAloud}`
+        }
+
+        const p = project as { description?: string | null; minLevel?: number | null; maxLevel?: number | null }
+        const introPrompt = `You are Daneel, the DM for the campaign "${project.name}".
+${p.description ? `Campaign premise: ${p.description}` : ''}
+Level range: ${p.minLevel ?? 1}–${p.maxLevel ?? 10}
+${docSummary ? `\nCampaign lore:\n${docSummary}` : ''}
+${startingAreaContext}
+
+Write a dramatic, atmospheric campaign opening — like the first page of a novel or the opening crawl of a film. It should:
+- Set the world, tone, and stakes in 2-3 vivid paragraphs
+- End with a scene-setting sentence that places the players at the threshold of their first adventure
+- Be written in second person ("You are…", "The world around you…")
+- NOT include any instructions, questions, or game mechanics — pure atmosphere and scene-setting only`
+
+        let introText = ''
+
+        if (provider === 'openclaw') {
+          const baseUrl = (settings?.openClawBaseUrl ?? '').replace(/\/$/, '')
+          const responsesUrl = baseUrl.endsWith('/v1/responses') ? baseUrl
+            : baseUrl.endsWith('/v1') ? baseUrl + '/responses'
+            : baseUrl + '/v1/responses'
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+          if (settings?.openClawApiKey) headers['Authorization'] = `Bearer ${settings.openClawApiKey}`
+          const res = await fetch(responsesUrl, {
+            method: 'POST', headers,
+            body: JSON.stringify({ model: 'openclaw', instructions: introPrompt, input: 'Begin.', max_output_tokens: 600 }),
+          })
+          if (res.ok) {
+            const data = await res.json()
+            const output = Array.isArray(data.output) ? data.output : []
+            for (const item of output) {
+              const c = Array.isArray(item.content) ? item.content : []
+              for (const block of c) {
+                if ((block.type === 'output_text' || block.type === 'text') && block.text) { introText = block.text; break }
+              }
+              if (introText) break
+              if (typeof item.content === 'string' && item.content) { introText = item.content; break }
+            }
+            if (!introText && data.output_text) introText = data.output_text
+          }
+        } else if (provider === 'openai') {
+          const openai = new OpenAI({ apiKey: settings!.aiApiKey! })
+          const resp = await openai.chat.completions.create({
+            model: aiModel!,
+            messages: [{ role: 'system', content: introPrompt }, { role: 'user', content: 'Begin.' }],
+            max_tokens: 600,
+          })
+          introText = resp.choices[0]?.message?.content ?? ''
+        } else {
+          const anthropic = new Anthropic({ apiKey: settings!.aiApiKey! })
+          const resp = await anthropic.messages.create({
+            model: aiModel!, max_tokens: 600,
+            system: introPrompt,
+            messages: [{ role: 'user', content: 'Begin.' }],
+          })
+          introText = resp.content[0]?.type === 'text' ? resp.content[0].text : ''
+        }
+
+        if (introText.trim()) {
+          await prisma.playRunLog.create({
+            data: { runId: run.id, type: 'intro', content: introText.trim(), speakerName: 'Daneel' },
+          })
+        }
+      }
+    } catch (err) {
+      console.error('[Intro generation error]', err)
+      // Non-fatal — run continues without intro
+    }
   }
 
   // Join run if not already in it

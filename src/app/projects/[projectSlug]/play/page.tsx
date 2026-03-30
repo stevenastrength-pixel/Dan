@@ -8,7 +8,7 @@ import Link from 'next/link'
 
 interface LogEntry {
   id: number
-  type: 'narration' | 'combat' | 'loot' | 'skill' | 'death' | 'dialogue' | 'system' | 'levelup'
+  type: 'narration' | 'combat' | 'loot' | 'skill' | 'death' | 'dialogue' | 'system' | 'levelup' | 'intro'
   content: string
   speakerName: string
   createdAt: string
@@ -58,8 +58,38 @@ interface PlayRun {
 
 // ─── Log Entry component ──────────────────────────────────────────────────────
 
-function LogLine({ entry }: { entry: LogEntry }) {
+function LogLine({ entry, projectName }: { entry: LogEntry; projectName?: string }) {
   const base = 'text-sm leading-relaxed'
+
+  if (entry.type === 'intro') {
+    return (
+      <div className="my-4 rounded-2xl overflow-hidden border border-slate-700/60 bg-gradient-to-b from-slate-900 to-slate-950">
+        {/* Title banner */}
+        <div className="px-6 py-5 border-b border-slate-700/40 text-center">
+          <div className="flex items-center justify-center gap-3 mb-2">
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent to-slate-600" />
+            <span className="text-[10px] font-bold tracking-[0.25em] uppercase text-slate-500">Campaign</span>
+            <div className="h-px flex-1 bg-gradient-to-l from-transparent to-slate-600" />
+          </div>
+          {projectName && (
+            <h1 className="text-xl font-bold text-slate-100 tracking-wide">{projectName}</h1>
+          )}
+        </div>
+        {/* Intro text */}
+        <div className="px-6 py-5 space-y-3">
+          {entry.content.split('\n\n').map((para, i) => (
+            <p key={i} className="text-sm leading-loose text-slate-300 italic">{para}</p>
+          ))}
+        </div>
+        <div className="px-6 pb-4 flex items-center gap-3">
+          <div className="h-px flex-1 bg-slate-800" />
+          <span className="text-[10px] tracking-widest text-slate-600 uppercase">Begin</span>
+          <div className="h-px flex-1 bg-slate-800" />
+        </div>
+      </div>
+    )
+  }
+
   if (entry.type === 'narration' && entry.speakerName === 'Daneel') {
     return <p className={`${base} text-slate-200 italic`}>{entry.content}</p>
   }
@@ -729,14 +759,7 @@ export default function PlayPage() {
 
         {/* Log */}
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-3">
-          {run.log.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-48 text-center gap-2">
-              <p className="text-sm text-slate-600">The adventure begins…</p>
-              <p className="text-xs text-slate-700">Type an action below to start. Try "I look around the room" or "We head north."</p>
-            </div>
-          ) : (
-            run.log.map(entry => <LogLine key={entry.id} entry={entry} />)
-          )}
+          {run.log.map(entry => <LogLine key={entry.id} entry={entry} projectName={run.name.replace(/ — Adventure$/, '')} />)}
           {sending && <p className="text-xs text-slate-600 italic animate-pulse">Daneel is thinking…</p>}
           <div ref={logEndRef} />
         </div>
