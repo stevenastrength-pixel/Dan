@@ -26,6 +26,7 @@ type MainView =
   | { type: 'chapter'; id: string }
   | { type: 'character'; id: string }
   | { type: 'world'; id: string }
+  | { type: 'gallery'; imageType: 'concept_art' | 'map' }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -270,10 +271,11 @@ function SidebarSection({
   )
 }
 
-function GallerySection({ label, projectSlug, imageType }: {
+function GallerySection({ label, projectSlug, imageType, onOpen }: {
   label: string
   projectSlug: string
   imageType: 'concept_art' | 'map'
+  onOpen?: () => void
 }) {
   const [open, setOpen] = useState(true)
   const [images, setImages] = useState<ProjectImage[]>([])
@@ -284,8 +286,17 @@ function GallerySection({ label, projectSlug, imageType }: {
   const [generateError, setGenerateError] = useState('')
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null)
   const [mounted, setMounted] = useState(false)
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const promptInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (!ctxMenu) return
+    const handler = () => setCtxMenu(null)
+    window.addEventListener('click', handler)
+    window.addEventListener('keydown', (e) => { if (e.key === 'Escape') setCtxMenu(null) })
+    return () => window.removeEventListener('click', handler)
+  }, [ctxMenu])
 
   useEffect(() => { setMounted(true) }, [])
 
@@ -399,6 +410,7 @@ function GallerySection({ label, projectSlug, imageType }: {
       <div className="flex items-center justify-between px-3 py-2">
         <button
           onClick={() => setOpen(v => !v)}
+          onContextMenu={e => { if (!onOpen) return; e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY }) }}
           className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-500 uppercase tracking-wider hover:text-slate-300 transition-colors"
         >
           <span>{open ? '▼' : '▶'}</span>{label}
@@ -492,6 +504,20 @@ function GallerySection({ label, projectSlug, imageType }: {
       )}
 
       {lightbox}
+
+      {ctxMenu && onOpen && mounted && createPortal(
+        <div
+          style={{ position: 'fixed', top: ctxMenu.y, left: ctxMenu.x, zIndex: 9999 }}
+          className="min-w-[140px] rounded-lg border border-slate-700/60 bg-slate-900 shadow-xl py-1"
+          onClick={e => e.stopPropagation()}
+        >
+          <button
+            className="w-full text-left px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800 transition-colors"
+            onClick={() => { onOpen(); setCtxMenu(null) }}
+          >→ Open in view</button>
+        </div>,
+        document.body
+      )}
     </div>
   )
 }
@@ -504,7 +530,7 @@ function Sidebar({
   onRenameCharacter, onDeleteCharacter,
   onRenameWorld, onDeleteWorld,
   chaptersLoading, charactersLoading, worldLoading,
-  projectType, projectSlug, onImportFile,
+  projectType, projectSlug, onImportFile, onOpenGallery,
 }: {
   documents: ProjectDocument[]
   selectedView: MainView
@@ -532,6 +558,7 @@ function Sidebar({
   projectType: string
   projectSlug: string
   onImportFile?: (title: string, file: File) => void
+  onOpenGallery?: (imageType: 'concept_art' | 'map') => void
 }) {
   const selectedDocKey = selectedView.type === 'document' ? selectedView.key : null
   const selectedChapterId = selectedView.type === 'chapter' ? selectedView.id : null
@@ -701,12 +728,198 @@ function Sidebar({
       />
 
       {/* Concept Art — both project types */}
-      <GallerySection label="Concept Art" projectSlug={projectSlug} imageType="concept_art" />
+      <GallerySection label="Concept Art" projectSlug={projectSlug} imageType="concept_art"
+        onOpen={onOpenGallery ? () => onOpenGallery('concept_art') : undefined} />
 
       {/* Maps — campaign only */}
       {projectType === 'campaign' && (
-        <GallerySection label="Maps" projectSlug={projectSlug} imageType="map" />
+        <GallerySection label="Maps" projectSlug={projectSlug} imageType="map"
+          onOpen={onOpenGallery ? () => onOpenGallery('map') : undefined} />
       )}
+    </div>
+  )
+}
+
+// ─── Gallery View (full-screen) ───────────────────────────────────────────────
+
+function GalleryView({ projectSlug, imageType, onBack }: {
+  projectSlug: string
+  imageType: 'concept_art' | 'map'
+  onBack: () => void
+}) {
+  const label = imageType === 'concept_art' ? 'Concept Art' : 'Maps'
+  const [images, setImages] = useState<ProjectImage[]>([])
+  const [uploading, setUploading] = useState(false)
+  const [generating, setGenerating] = useState(false)
+  const [generatePrompt, setGeneratePrompt] = useState('')
+  const [generateError, setGenerateError] = useState('')
+  const [lightboxIdx, setLightboxIdx] = useState<number | null>(null)
+  const [mounted, setMounted] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => { setMounted(true) }, [])
+
+  useEffect(() => {
+    fetch(`/api/projects/${projectSlug}/images?type=${imageType}`)
+      .then(r => r.ok ? r.json() : [])
+      .then(setImages)
+      .catch(() => {})
+  }, [projectSlug, imageType])
+
+  useEffect(() => {
+    if (lightboxIdx === null) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setLightboxIdx(null)
+      if (e.key === 'ArrowLeft') setLightboxIdx(i => i !== null && i > 0 ? i - 1 : i)
+      if (e.key === 'ArrowRight') setLightboxIdx(i => i !== null && i < images.length - 1 ? i + 1 : i)
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [lightboxIdx, images.length])
+
+  const upload = async (file: File) => {
+    setUploading(true)
+    const fd = new FormData()
+    fd.append('file', file)
+    fd.append('imageType', imageType)
+    fd.append('title', file.name.replace(/\.[^.]+$/, ''))
+    try {
+      const res = await fetch(`/api/projects/${projectSlug}/images`, { method: 'POST', body: fd })
+      if (res.ok) { const img = await res.json(); setImages(prev => [...prev, img]) }
+    } catch { /* no-op */ }
+    setUploading(false)
+  }
+
+  const deleteImage = async (id: string, idx: number) => {
+    await fetch(`/api/projects/${projectSlug}/images/${id}`, { method: 'DELETE' })
+    setImages(prev => prev.filter(i => i.id !== id))
+    if (lightboxIdx !== null) {
+      if (lightboxIdx === idx) setLightboxIdx(null)
+      else if (lightboxIdx > idx) setLightboxIdx(lightboxIdx - 1)
+    }
+  }
+
+  const generate = async () => {
+    const prompt = generatePrompt.trim()
+    if (!prompt) return
+    setGenerating(true)
+    setGenerateError('')
+    try {
+      const res = await fetch(`/api/projects/${projectSlug}/images/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, imageType, title: prompt.slice(0, 60) }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Generation failed.' }))
+        setGenerateError(err.error ?? 'Generation failed.')
+      } else {
+        const img = await res.json()
+        setImages(prev => [...prev, img])
+        setGeneratePrompt('')
+      }
+    } catch {
+      setGenerateError('Network error.')
+    }
+    setGenerating(false)
+  }
+
+  const lightbox = lightboxIdx !== null && mounted && typeof document !== 'undefined' ? createPortal(
+    <div className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center" onClick={() => setLightboxIdx(null)}>
+      <button className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center text-white/60 hover:text-white text-xl transition-colors" onClick={() => setLightboxIdx(null)}>✕</button>
+      {lightboxIdx > 0 && (
+        <button className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center text-white/60 hover:text-white text-4xl transition-colors" onClick={e => { e.stopPropagation(); setLightboxIdx(i => i !== null ? i - 1 : i) }}>‹</button>
+      )}
+      {lightboxIdx < images.length - 1 && (
+        <button className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center text-white/60 hover:text-white text-4xl transition-colors" onClick={e => { e.stopPropagation(); setLightboxIdx(i => i !== null ? i + 1 : i) }}>›</button>
+      )}
+      <div className="flex flex-col items-center gap-3 px-16" onClick={e => e.stopPropagation()}>
+        <img src={images[lightboxIdx].url} alt={images[lightboxIdx].title} className="max-h-[82vh] max-w-[88vw] object-contain rounded-lg shadow-2xl" />
+        {images[lightboxIdx].title && <p className="text-slate-300 text-sm">{images[lightboxIdx].title}</p>}
+        <p className="text-slate-600 text-[10px]">{lightboxIdx + 1} / {images.length}</p>
+      </div>
+    </div>,
+    document.body
+  ) : null
+
+  return (
+    <div className="flex flex-col h-full bg-slate-950">
+      {/* Header */}
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-800/60 shrink-0">
+        <button onClick={onBack} className="text-sm text-slate-500 hover:text-slate-300 transition-colors">← Console</button>
+        <span className="text-slate-800">|</span>
+        <span className="text-sm font-semibold text-slate-300">{label}</span>
+        <div className="flex-1" />
+        <div className="flex items-center gap-2">
+          <input
+            value={generatePrompt}
+            onChange={e => setGeneratePrompt(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') generate() }}
+            placeholder="Describe an image… (AI will expand it)"
+            disabled={generating}
+            className="w-72 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-violet-500/40 disabled:opacity-50"
+          />
+          <button
+            onClick={generate}
+            disabled={generating || !generatePrompt.trim()}
+            className="px-3 py-1.5 bg-violet-600/20 border border-violet-500/30 text-violet-300 rounded-lg text-sm hover:bg-violet-600/30 disabled:opacity-40 transition-colors shrink-0"
+            title="Generate with AI"
+          >
+            {generating ? '…' : '✦ Generate'}
+          </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            className="px-3 py-1.5 bg-slate-800 border border-slate-700 text-slate-300 rounded-lg text-sm hover:bg-slate-700 disabled:opacity-40 transition-colors shrink-0"
+          >
+            {uploading ? '…' : '+ Upload'}
+          </button>
+        </div>
+      </div>
+
+      {generateError && (
+        <p className="px-4 py-2 text-sm text-red-400 bg-red-500/10 border-b border-red-500/20 shrink-0">{generateError}</p>
+      )}
+
+      {/* Grid */}
+      <div className="flex-1 overflow-y-auto p-4">
+        {images.length === 0 && !generating && !uploading && (
+          <div className="flex flex-col items-center justify-center h-full text-slate-600 gap-2">
+            <p className="text-sm">No images yet</p>
+            <p className="text-xs">Use ✦ Generate or + Upload above</p>
+          </div>
+        )}
+        {(generating || uploading) && (
+          <p className="text-slate-500 text-sm animate-pulse mb-4">{generating ? '✦ AI is generating…' : 'Uploading…'}</p>
+        )}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          {images.map((img, idx) => (
+            <div
+              key={img.id}
+              className="group relative aspect-square rounded-xl overflow-hidden bg-slate-800 cursor-pointer"
+              onClick={() => setLightboxIdx(idx)}
+            >
+              <img src={img.url} alt={img.title} className="w-full h-full object-cover" />
+              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/50 transition-colors" />
+              <p className="absolute bottom-0 inset-x-0 px-2 py-1.5 text-xs text-white opacity-0 group-hover:opacity-90 transition-opacity truncate">{img.title}</p>
+              <button
+                className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/60 flex items-center justify-center text-[10px] text-white/0 group-hover:text-white/70 hover:!text-white hover:bg-red-600/80 transition-colors"
+                onClick={e => { e.stopPropagation(); deleteImage(img.id, idx) }}
+                title="Delete"
+              >✕</button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/gif,image/webp"
+        className="hidden"
+        onChange={e => { const f = e.target.files?.[0]; if (f) { upload(f); e.target.value = '' } }}
+      />
+      {lightbox}
     </div>
   )
 }
@@ -2153,6 +2366,10 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
             onSaved={updated => { setWorldEntries(prev => prev.map(w => w.id === updated.id ? updated : w)); showToast('Entry saved.') }}
             onBack={() => { setView({ type: 'console' }); if (window.innerWidth >= 1024) setDocSidebarOpen(true) }} />
         )}
+        {view.type === 'gallery' && (
+          <GalleryView projectSlug={project.slug} imageType={view.imageType}
+            onBack={() => { setView({ type: 'console' }); if (window.innerWidth >= 1024) setDocSidebarOpen(true) }} />
+        )}
         {view.type === 'console' && (
           <>
             <ChatPanel
@@ -2227,6 +2444,7 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
           projectType={project.type}
           projectSlug={project.slug}
           onImportFile={createChapterFromFile}
+          onOpenGallery={(imageType) => { setView({ type: 'gallery', imageType }); setDocSidebarOpen(false) }}
         />
       </div>
     </div>
