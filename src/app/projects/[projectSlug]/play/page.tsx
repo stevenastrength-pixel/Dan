@@ -230,20 +230,15 @@ function PlayerDrawer({ slug, player, run, onClose }: {
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex justify-end">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative w-full max-w-sm bg-slate-900 border-l border-slate-700 flex flex-col h-full shadow-2xl">
+    <div className="w-64 h-full bg-slate-950 border-l border-slate-800/60 flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800">
-          <div className="flex gap-1">
-            {(['sheet', 'journal'] as const).map(t => (
-              <button key={t} onClick={() => setTab(t)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-colors ${tab === t ? 'bg-violet-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}>
-                {t === 'sheet' ? 'Character' : 'Journal'}
-              </button>
-            ))}
-          </div>
-          <button onClick={onClose} className="text-slate-500 hover:text-slate-300 text-xl leading-none">×</button>
+        <div className="flex items-center gap-1 px-3 py-3 border-b border-slate-800/60">
+          {(['sheet', 'journal'] as const).map(t => (
+            <button key={t} onClick={() => setTab(t)}
+              className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors ${tab === t ? 'bg-violet-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}>
+              {t === 'sheet' ? 'Character' : 'Journal'}
+            </button>
+          ))}
         </div>
 
         <div className="flex-1 overflow-y-auto p-4">
@@ -406,7 +401,6 @@ function PlayerDrawer({ slug, player, run, onClose }: {
             )
           )}
         </div>
-      </div>
     </div>
   )
 }
@@ -632,37 +626,10 @@ export default function PlayPage() {
   return (
     <div className="flex-1 flex min-h-0 bg-slate-950 overflow-hidden">
       {deathModal && <DeathModal playerName={deathModal.playerName} onChoice={handleDeathChoice} />}
-      {showDrawer && me && <PlayerDrawer slug={slug} player={me} run={run} onClose={() => setShowDrawer(false)} />}
 
-      {/* ── Right panel: Party + Combat ───────────────────────────────── */}
-      <div className="w-56 shrink-0 border-l border-slate-800/60 flex flex-col min-h-0 hidden lg:flex">
-        <div className="px-3 py-3 border-b border-slate-800/60">
-          <h3 className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Party</h3>
-        </div>
-        <div className="flex-1 overflow-y-auto p-3 space-y-2">
-          {run.players.map(p => (
-            <PlayerCard key={p.id} player={p} isCurrentUser={p.username === currentUser} />
-          ))}
-        </div>
+      {/* ── Main area — shifts left on mobile when sidebar opens ────── */}
+      <div className={`flex flex-col flex-1 min-h-0 overflow-hidden transition-transform duration-200 ease-in-out ${showDrawer ? '-translate-x-64 lg:translate-x-0' : 'translate-x-0'}`}>
 
-        {run.inCombat && sortedCombatants.length > 0 && (
-          <>
-            <div className="px-3 py-2 border-t border-slate-800/60">
-              <h3 className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Combat — Round {run.roundNumber}</h3>
-            </div>
-            <div className="p-2 space-y-1 border-t border-slate-800/40 max-h-48 overflow-y-auto">
-              {sortedCombatants.map(c => <CombatantRow key={c.id} c={c} />)}
-            </div>
-          </>
-        )}
-
-        <div className="p-3 border-t border-slate-800/60">
-          <button onClick={wipeRun} className="w-full text-[10px] text-slate-600 hover:text-red-400 transition-colors">Wipe Run</button>
-        </div>
-      </div>
-
-      {/* ── Center: Narrative log + input ────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-h-0">
         {/* Header */}
         <div className="px-4 h-12 border-b border-slate-800/60 shrink-0 flex items-center gap-3">
           <span className="text-sm font-semibold text-slate-200 truncate">{run.name}</span>
@@ -672,15 +639,12 @@ export default function PlayPage() {
             </span>
           )}
           <div className="ml-auto flex items-center gap-2">
-            {me && (
-              <>
-                <span className="text-[10px] text-slate-500 hidden sm:inline">{me.characterName} · {me.currentHP}/{me.maxHP} HP</span>
-                <button onClick={() => setShowDrawer(true)}
-                  className="h-7 px-3 rounded-lg border border-slate-700 text-xs text-slate-400 hover:text-slate-200 hover:border-slate-500 transition-colors">
-                  Character & Journal
-                </button>
-              </>
-            )}
+            {me && <span className="text-[10px] text-slate-500 hidden sm:inline">{me.characterName} · {me.currentHP}/{me.maxHP} HP</span>}
+            <button onClick={() => setShowDrawer(v => !v)}
+              className={`w-8 h-8 flex items-center justify-center rounded-lg border transition-colors text-base ${showDrawer ? 'border-violet-500/40 text-violet-400 bg-violet-500/10' : 'border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600'}`}
+              title="Character & Journal">
+              📋
+            </button>
           </div>
         </div>
 
@@ -694,13 +658,11 @@ export default function PlayPage() {
           ) : (
             run.log.map(entry => <LogLine key={entry.id} entry={entry} />)
           )}
-          {sending && (
-            <p className="text-xs text-slate-600 italic animate-pulse">Daneel is thinking…</p>
-          )}
+          {sending && <p className="text-xs text-slate-600 italic animate-pulse">Daneel is thinking…</p>}
           <div ref={logEndRef} />
         </div>
 
-        {/* Quick actions when in combat */}
+        {/* Quick actions in combat */}
         {run.inCombat && (
           <div className="px-4 py-2 border-t border-slate-800/40 flex flex-wrap gap-1.5">
             {['I attack!', 'I cast a spell', 'I dash', 'I hide', 'I help an ally', 'I disengage'].map(action => (
@@ -715,6 +677,12 @@ export default function PlayPage() {
         {/* Input */}
         <div className="px-4 py-3 border-t border-slate-800/60 shrink-0">
           <div className="flex gap-2 items-end">
+            {/* Daneel / Party toggle — left of textarea */}
+            <button onClick={() => setTalkToDaneel(v => !v)} title={talkToDaneel ? 'Switch to party-only chat' : 'Switch to Daneel DM mode'}
+              className={`shrink-0 flex flex-col items-center justify-center gap-1 h-[60px] w-14 rounded-xl border text-[9px] font-bold uppercase tracking-wide transition-colors ${talkToDaneel ? 'border-violet-500/50 bg-violet-500/10 text-violet-300' : 'border-amber-600/40 bg-amber-500/10 text-amber-400'}`}>
+              <span className={`w-3 h-3 rounded-full ${talkToDaneel ? 'bg-violet-400' : 'bg-amber-400'}`} />
+              {talkToDaneel ? 'Daneel' : 'Party'}
+            </button>
             <textarea
               ref={inputRef}
               value={input}
@@ -730,16 +698,17 @@ export default function PlayPage() {
               →
             </button>
           </div>
-          <div className="flex items-center justify-between mt-2">
-            <p className="text-[10px] text-slate-700">Enter to send · Shift+Enter for new line</p>
-            {/* Daneel / Party toggle */}
-            <button onClick={() => setTalkToDaneel(v => !v)}
-              className={`flex items-center gap-1.5 h-6 px-2 rounded-full border text-[10px] font-semibold transition-colors ${talkToDaneel ? 'border-violet-500/50 bg-violet-500/10 text-violet-300' : 'border-amber-600/40 bg-amber-500/10 text-amber-400'}`}>
-              <span className={`w-3 h-3 rounded-full transition-colors ${talkToDaneel ? 'bg-violet-400' : 'bg-amber-400'}`} />
-              {talkToDaneel ? 'Daneel' : 'Party only'}
-            </button>
-          </div>
+          <p className="text-[10px] text-slate-700 mt-1 ml-16">Enter to send · Shift+Enter for new line</p>
         </div>
+      </div>
+
+      {/* ── Right sidebar: Character & Journal — same pattern as doc sidebar ── */}
+      <div className={`
+        fixed lg:static inset-y-0 right-0 z-40 shrink-0 lg:h-full w-64
+        transition-transform duration-200 ease-in-out
+        ${showDrawer ? 'translate-x-0' : 'translate-x-full lg:hidden'}
+      `}>
+        {me && <PlayerDrawer slug={slug} player={me} run={run} onClose={() => setShowDrawer(false)} />}
       </div>
     </div>
   )
