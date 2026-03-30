@@ -80,8 +80,25 @@ export async function DELETE(request: Request, { params }: { params: { projectSl
   const project = await prisma.project.findUnique({ where: { slug: params.projectSlug } })
   if (!project) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
+  let targetUsername = user.username
+
+  // Allow admins or party DMs to remove other members
+  let body: { username?: string } = {}
+  try { body = await request.json() } catch {}
+  if (body.username && body.username.toLowerCase() !== user.username.toLowerCase()) {
+    const isAdmin = user.role === 'admin'
+    const requestingMember = await prisma.partyMember.findUnique({
+      where: { projectId_username: { projectId: project.id, username: user.username } },
+    })
+    const isDm = requestingMember?.role === 'dm'
+    if (!isAdmin && !isDm) {
+      return NextResponse.json({ error: 'Only the DM or an admin can remove other members' }, { status: 403 })
+    }
+    targetUsername = body.username
+  }
+
   await prisma.partyMember.deleteMany({
-    where: { projectId: project.id, username: user.username },
+    where: { projectId: project.id, username: targetUsername },
   })
 
   return NextResponse.json({ ok: true })

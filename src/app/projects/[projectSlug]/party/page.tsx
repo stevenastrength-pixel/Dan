@@ -24,6 +24,7 @@ export default function PartyPage() {
 
   const [members, setMembers] = useState<PartyMember[]>([])
   const [currentUser, setCurrentUser] = useState<string | null>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
   const [myMember, setMyMember] = useState<PartyMember | null>(null)
   const [loading, setLoading] = useState(true)
   const [joining, setJoining] = useState(false)
@@ -39,6 +40,7 @@ export default function PartyPage() {
       if (meRes.ok) {
         const me = await meRes.json()
         setCurrentUser(me.username)
+        setIsAdmin(me.role === 'admin')
         setMyMember(data.find(m => m.username.toLowerCase() === me.username.toLowerCase()) ?? null)
       }
     }
@@ -70,9 +72,18 @@ export default function PartyPage() {
     await load()
   }
 
+  const removeMember = async (username: string) => {
+    await fetch(`/api/projects/${slug}/party`, {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username }),
+    })
+    await load()
+  }
+
   const dm = members.find(m => m.role === 'dm')
   const players = members.filter(m => m.role === 'player')
   const isDm = myMember?.role === 'dm'
+  const canManage = isDm || isAdmin
 
   if (loading) {
     return <div className="flex-1 flex items-center justify-center bg-slate-950"><p className="text-slate-500 text-sm">Loading…</p></div>
@@ -114,8 +125,8 @@ export default function PartyPage() {
         <div>
           <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Dungeon Master</h2>
           {dm ? (
-            <MemberCard member={dm} isMe={dm.username === currentUser} isDm={isDm} slug={slug}
-              currentUser={currentUser} onRoleChange={setRole} />
+            <MemberCard member={dm} isMe={dm.username === currentUser} isDm={isDm} canManage={canManage} slug={slug}
+              currentUser={currentUser} onRoleChange={setRole} onRemove={removeMember} />
           ) : (
             <div className="bg-slate-800/30 border border-dashed border-slate-700/60 rounded-xl p-6 text-center">
               <p className="text-sm text-slate-600">No DM yet</p>
@@ -137,7 +148,7 @@ export default function PartyPage() {
           <div className="space-y-3">
             {players.map(m => (
               <MemberCard key={m.username} member={m} isMe={m.username === currentUser}
-                isDm={isDm} slug={slug} currentUser={currentUser} onRoleChange={setRole} />
+                isDm={isDm} canManage={canManage} slug={slug} currentUser={currentUser} onRoleChange={setRole} onRemove={removeMember} />
             ))}
             {players.length === 0 && (
               <p className="text-sm text-slate-600 italic">No players yet. Share an invite link to get people in.</p>
@@ -180,14 +191,17 @@ export default function PartyPage() {
 
 // ─── Member card ──────────────────────────────────────────────────────────────
 
-function MemberCard({ member, isMe, isDm, slug, currentUser, onRoleChange }: {
+function MemberCard({ member, isMe, isDm, canManage, slug, currentUser, onRoleChange, onRemove }: {
   member: PartyMember
   isMe: boolean
   currentUser: string | null
   isDm: boolean
+  canManage: boolean
   slug: string
   onRoleChange: (username: string, role: 'dm' | 'player') => void
+  onRemove: (username: string) => void
 }) {
+  const [confirmRemove, setConfirmRemove] = useState(false)
   const actuallyMe = isMe || (!!currentUser && member.username.toLowerCase() === currentUser.toLowerCase())
   const sheet = member.characterSheet
   const hp = sheet ? `${sheet.currentHP}/${sheet.maxHP} HP` : null
@@ -231,17 +245,36 @@ function MemberCard({ member, isMe, isDm, slug, currentUser, onRoleChange }: {
             Edit Sheet
           </Link>
         )}
-        {isDm && !isMe && member.role !== 'dm' && (
+        {isDm && !actuallyMe && member.role !== 'dm' && (
           <button onClick={() => onRoleChange(member.username, 'dm')}
             className="px-2.5 py-1 text-xs text-amber-400 border border-amber-500/30 rounded-lg hover:bg-amber-500/10 transition-colors">
             Make DM
           </button>
         )}
-        {isDm && !isMe && member.role === 'dm' && (
+        {isDm && !actuallyMe && member.role === 'dm' && (
           <button onClick={() => onRoleChange(member.username, 'player')}
             className="px-2.5 py-1 text-xs text-slate-400 border border-slate-700 rounded-lg hover:border-slate-600 transition-colors">
             → Player
           </button>
+        )}
+        {canManage && !actuallyMe && (
+          confirmRemove ? (
+            <div className="flex items-center gap-1">
+              <button onClick={() => onRemove(member.username)}
+                className="px-2.5 py-1 text-xs text-red-400 border border-red-500/40 bg-red-500/10 rounded-lg hover:bg-red-500/20 transition-colors">
+                Confirm
+              </button>
+              <button onClick={() => setConfirmRemove(false)}
+                className="px-2 py-1 text-xs text-slate-500 hover:text-slate-300 transition-colors">
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button onClick={() => setConfirmRemove(true)}
+              className="px-2.5 py-1 text-xs text-slate-500 border border-slate-700/60 rounded-lg hover:text-red-400 hover:border-red-500/30 transition-colors">
+              Remove
+            </button>
+          )
         )}
       </div>
     </div>
