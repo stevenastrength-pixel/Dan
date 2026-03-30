@@ -407,7 +407,7 @@ export async function callAnthropicWithTools(params: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let currentMessages: any[] = [...messages]
 
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 15; i++) {
     console.log(`[tool loop] iteration ${i}, messages: ${currentMessages.length}`)
     const response = await client.messages.create({
       model,
@@ -446,7 +446,8 @@ export async function callAnthropicWithTools(params: {
     currentMessages = [...currentMessages, { role: 'user', content: toolResults }]
   }
 
-  return { text: '(Tool loop limit reached)', toolCalls }
+  console.warn('[tool loop] limit reached after 15 iterations')
+  return { text: '', toolCalls }
 }
 
 // ─── OpenAI agentic loop (with tools) ────────────────────────────────────────
@@ -480,7 +481,7 @@ export async function callOpenAIWithTools(params: {
     ...messages,
   ]
 
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 15; i++) {
     console.log(`[tool loop openai] iteration ${i}, messages: ${currentMessages.length}`)
     const response = await client.chat.completions.create({
       model,
@@ -514,7 +515,8 @@ export async function callOpenAIWithTools(params: {
     currentMessages = [...currentMessages, ...toolResultMessages]
   }
 
-  return { text: '(Tool loop limit reached)', toolCalls }
+  console.warn('[tool loop] limit reached after 15 iterations')
+  return { text: '', toolCalls }
 }
 
 // ─── OpenClaw agentic loop (with tools) ──────────────────────────────────────
@@ -559,7 +561,7 @@ export async function callOpenClawWithTools(params: {
   let input: OpenClawInputItem[] = toOpenClawInputMessages(messages)
   let pendingAssistantText = ''
 
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 15; i++) {
     const data = await postOpenClawResponses({
       openClawBaseUrl,
       openClawApiKey,
@@ -614,7 +616,8 @@ export async function callOpenClawWithTools(params: {
     input = toolResults
   }
 
-  return { text: '(Tool loop limit reached)', toolCalls }
+  console.warn('[tool loop] limit reached after 15 iterations')
+  return { text: '', toolCalls }
 }
 
 // ─── System prompt builder (shared) ──────────────────────────────────────────
