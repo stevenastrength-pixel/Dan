@@ -20,6 +20,8 @@ async function expandPrompt(
 ): Promise<string> {
   const provider = settings?.aiProvider ?? 'anthropic'
   const apiKey = settings?.aiApiKey ?? ''
+  const aiModel = settings?.aiModel?.trim()
+  if (!aiModel) return userPrompt  // no model configured — skip expansion, use raw prompt
   if (!apiKey && provider !== 'openclaw') return userPrompt
 
   const systemPrompt = `You are an expert image prompt engineer for AI art generators (FLUX/Stable Diffusion). Given a brief description and project context, write a single detailed image generation prompt that will produce high-quality fantasy RPG artwork.
@@ -39,7 +41,7 @@ ${contextLines.length > 0 ? `\nWorld context:\n${contextLines.join('\n')}` : ''}
       const OpenAI = (await import('openai')).default
       const client = new OpenAI({ apiKey })
       const resp = await client.chat.completions.create({
-        model: settings?.aiModel || 'gpt-4o-mini',
+        model: aiModel,
         max_tokens: 300,
         messages: [
           { role: 'system', content: systemPrompt },
@@ -52,7 +54,7 @@ ${contextLines.length > 0 ? `\nWorld context:\n${contextLines.join('\n')}` : ''}
       const Anthropic = (await import('@anthropic-ai/sdk')).default
       const client = new Anthropic({ apiKey })
       const resp = await client.messages.create({
-        model: settings?.aiModel || 'claude-sonnet-4-6',
+        model: aiModel,
         max_tokens: 300,
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],

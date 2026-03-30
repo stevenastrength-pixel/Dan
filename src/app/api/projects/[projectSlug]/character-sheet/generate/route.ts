@@ -15,8 +15,11 @@ export async function POST(request: Request, { params }: { params: { projectSlug
   if (!project) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const settings = await prisma.settings.findFirst()
-  if (!settings?.aiApiKey && settings?.aiProvider !== 'openclaw') {
-    return NextResponse.json({ error: 'No API key configured.' }, { status: 400 })
+  const provider = settings?.aiProvider ?? 'anthropic'
+  const aiModel = settings?.aiModel?.trim()
+  if (!aiModel) return NextResponse.json({ error: 'No AI model configured. Go to Settings and set a model.' }, { status: 400 })
+  if (provider !== 'openclaw' && !settings?.aiApiKey) {
+    return NextResponse.json({ error: 'No API key configured. Go to Settings.' }, { status: 400 })
   }
 
   const body = await request.json()
@@ -76,12 +79,11 @@ Use the standard array from 5e: assign 15,14,13,12,10,8 to stats based on class.
 
   try {
     let content = ''
-    const provider = settings?.aiProvider ?? 'anthropic'
 
     if (provider === 'openai') {
       const openai = new OpenAI({ apiKey: settings!.aiApiKey })
       const resp = await openai.chat.completions.create({
-        model: settings?.aiModel || 'gpt-4o',
+        model: aiModel,
         messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMsg }],
         temperature: 0.9,
       })
@@ -96,7 +98,7 @@ Use the standard array from 5e: assign 15,14,13,12,10,8 to stats based on class.
         : undefined
       const anthropic = new Anthropic({ apiKey, ...(baseURL ? { baseURL } : {}) })
       const resp = await anthropic.messages.create({
-        model: settings?.aiModel || 'claude-sonnet-4-6',
+        model: aiModel,
         max_tokens: 1500,
         system: systemPrompt,
         messages: [{ role: 'user', content: userMsg }],
