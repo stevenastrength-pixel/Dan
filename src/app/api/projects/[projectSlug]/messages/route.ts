@@ -958,6 +958,8 @@ ${worldList}`
             tactics: { type: 'string', description: 'New tactics (optional).' },
             dmNotes: { type: 'string', description: 'New DM notes (optional).' },
             rewardText: { type: 'string', description: 'New reward text (optional).' },
+            locationId: { type: 'number', description: 'Location id to attach this encounter to (optional).' },
+            keyedAreaId: { type: 'number', description: 'Keyed area id to attach this encounter to (optional).' },
             editSummary: { type: 'string', description: 'One sentence describing the change.' },
           },
           required: ['id', 'editSummary'],
@@ -1824,8 +1826,8 @@ ${worldList}`
       return `Created ${enc.encounterType} encounter "${enc.name}" (id: ${enc.id}, difficulty: ${enc.difficulty})`
     }
     if (name === 'update_encounter') {
-      const { id, name: encName, difficulty, summary: encSummary, tactics, dmNotes, rewardText, editSummary } = input as {
-        id: number; name?: string; difficulty?: string; summary?: string; tactics?: string; dmNotes?: string; rewardText?: string; editSummary: string
+      const { id, name: encName, difficulty, summary: encSummary, tactics, dmNotes, rewardText, locationId, keyedAreaId, editSummary } = input as {
+        id: number; name?: string; difficulty?: string; summary?: string; tactics?: string; dmNotes?: string; rewardText?: string; locationId?: number; keyedAreaId?: number; editSummary: string
       }
       const enc = await prisma.encounter.findUnique({ where: { id } })
       if (!enc || enc.projectId !== project.id) return `Error: encounter "${id}" not found.`
@@ -1838,6 +1840,8 @@ ${worldList}`
           ...(tactics != null ? { tactics: tactics.trim() } : {}),
           ...(dmNotes != null ? { dmNotes: dmNotes.trim() } : {}),
           ...(rewardText != null ? { rewardText: rewardText.trim() } : {}),
+          ...(locationId != null ? { locationId } : {}),
+          ...(keyedAreaId != null ? { keyedAreaId } : {}),
         },
       })
       return `Updated encounter "${encName?.trim() ?? enc.name}". ${editSummary}`
