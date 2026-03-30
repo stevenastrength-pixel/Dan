@@ -471,7 +471,7 @@ export async function POST(request: Request, { params }: { params: { projectSlug
       const result = await callOpenAIWithTools({ messages: aiMessages, systemPrompt, tools: CRAWLER_TOOLS, apiKey: settings!.aiApiKey!, model: aiModel!, onToolCall })
       finalText = result.text
     } else {
-      const result = await callOpenClawWithTools({ messages: aiMessages, systemPrompt, tools: CRAWLER_TOOLS, openClawBaseUrl: settings!.openClawBaseUrl!, context: { project: { id: project.id, slug: params.projectSlug, name: project.name }, documents: [], characters: [], worldEntries: [], styleGuide: '' }, onToolCall })
+      const result = await callOpenClawWithTools({ messages: aiMessages, systemPrompt, tools: CRAWLER_TOOLS, openClawBaseUrl: settings!.openClawBaseUrl!, openClawApiKey: settings?.openClawApiKey ?? undefined, context: { project: { id: project.id, slug: params.projectSlug, name: project.name }, documents: [], characters: [], worldEntries: [], styleGuide: '' }, onToolCall })
       finalText = result.text
     }
 
