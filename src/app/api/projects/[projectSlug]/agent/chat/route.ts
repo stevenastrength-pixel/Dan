@@ -139,6 +139,13 @@ export async function POST(request: Request, { params }: { params: { projectSlug
       { status: 400, headers: { 'Content-Type': 'application/json' } }
     )
   }
+  const aiModel = settings?.aiModel?.trim()
+  if (!aiModel) {
+    return new Response(
+      JSON.stringify({ error: 'No AI model configured. Go to Settings and set a model.' }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } }
+    )
+  }
 
   const contextDocs = await loadContextFiles(settings?.contextFiles ?? '[]')
   const systemPrompt = buildAgentSystemPrompt({
@@ -189,6 +196,7 @@ export async function POST(request: Request, { params }: { params: { projectSlug
             systemPrompt,
             provider,
             apiKey: settings!.aiApiKey,
+            model: aiModel,
           })
         }
 

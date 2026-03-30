@@ -450,19 +450,25 @@ export async function POST(request: Request, { params }: { params: { projectSlug
   }
 
   const provider = (settings?.aiProvider ?? 'anthropic') as 'anthropic' | 'openai' | 'openclaw'
+  const aiModel = settings?.aiModel?.trim()
 
   try {
     let finalText = ''
+
+    if (!aiModel && provider !== 'openclaw') {
+      await prisma.playRunLog.create({ data: { runId: run.id, type: 'system', content: '(No AI model configured. Go to Settings and set a model.)' } })
+      return NextResponse.json({ ok: true })
+    }
 
     const onToolCall = async (toolName: string, toolInput: Record<string, unknown>) => {
       return await handleCrawlerTool(toolName, toolInput, run.id)
     }
 
     if (provider === 'anthropic') {
-      const result = await callAnthropicWithTools({ messages: aiMessages, systemPrompt, tools: CRAWLER_TOOLS, apiKey: settings!.aiApiKey!, onToolCall })
+      const result = await callAnthropicWithTools({ messages: aiMessages, systemPrompt, tools: CRAWLER_TOOLS, apiKey: settings!.aiApiKey!, model: aiModel!, onToolCall })
       finalText = result.text
     } else if (provider === 'openai') {
-      const result = await callOpenAIWithTools({ messages: aiMessages, systemPrompt, tools: CRAWLER_TOOLS, apiKey: settings!.aiApiKey!, onToolCall })
+      const result = await callOpenAIWithTools({ messages: aiMessages, systemPrompt, tools: CRAWLER_TOOLS, apiKey: settings!.aiApiKey!, model: aiModel!, onToolCall })
       finalText = result.text
     } else {
       const result = await callOpenClawWithTools({ messages: aiMessages, systemPrompt, tools: CRAWLER_TOOLS, openClawBaseUrl: settings!.openClawBaseUrl!, context: { project: { id: project.id, slug: params.projectSlug, name: project.name }, documents: [], characters: [], worldEntries: [], styleGuide: '' }, onToolCall })

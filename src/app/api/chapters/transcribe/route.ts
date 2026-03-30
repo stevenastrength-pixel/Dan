@@ -7,9 +7,14 @@ import Anthropic from '@anthropic-ai/sdk'
 
 export async function POST(request: Request) {
   const settings = await prisma.settings.findFirst()
-  if (!settings?.aiApiKey) {
-    return NextResponse.json({ error: 'No API key configured.' }, { status: 400 })
-  }
+  const provider = settings?.aiProvider ?? 'anthropic'
+  const aiModel = settings?.aiModel?.trim()
+  const apiKey = provider === 'openclaw'
+    ? (settings?.openClawApiKey ?? settings?.aiApiKey ?? '')
+    : (settings?.aiApiKey ?? '')
+
+  if (!aiModel) return NextResponse.json({ error: 'No AI model configured. Go to Settings.' }, { status: 400 })
+  if (!apiKey) return NextResponse.json({ error: 'No API key configured. Go to Settings.' }, { status: 400 })
 
   const formData = await request.formData()
   const file = formData.get('file') as File | null
@@ -30,7 +35,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ content: text.trim() })
     }
 
-    const anthropic = new Anthropic({ apiKey: settings.aiApiKey })
+    // Vision/PDF transcription — requires Anthropic (document blocks not supported on OpenAI/OpenClaw)
+    const anthropicKey = settings?.aiApiKey ?? ''
+    if (!anthropicKey) return NextResponse.json({ error: 'Image/PDF transcription requires an Anthropic API key.' }, { status: 400 })
+    const anthropic = new Anthropic({ apiKey: anthropicKey })
 
     const systemPrompt = `You are a transcription assistant. Your job is to extract and reproduce the text content from the provided file as faithfully as possible.
 
@@ -64,7 +72,7 @@ Rules:
     }
 
     const response = await anthropic.messages.create({
-      model: 'claude-opus-4-6',
+      model: aiModel,
       max_tokens: 8000,
       system: systemPrompt,
       messages: [{ role: 'user', content }],

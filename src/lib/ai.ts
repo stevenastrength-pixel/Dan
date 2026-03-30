@@ -1,12 +1,5 @@
 export type AIProvider = 'anthropic' | 'openai' | 'openclaw'
 
-// ─── Default models ───────────────────────────────────────────────────────────
-
-const DEFAULT_ANTHROPIC_MODEL = 'claude-opus-4-6'
-const DEFAULT_ANTHROPIC_TOOL_MODEL = 'claude-sonnet-4-6'
-const DEFAULT_OPENAI_MODEL = 'gpt-5.4'
-const DEFAULT_OPENAI_TOOL_MODEL = 'gpt-5.4-nano'
-
 // ─── Shared types ─────────────────────────────────────────────────────────────
 
 export type ToolDef = {
@@ -311,7 +304,7 @@ export async function* streamAIChat(params: {
   systemPrompt: string
   provider: 'anthropic' | 'openai'
   apiKey: string
-  model?: string
+  model: string
 }): AsyncGenerator<string> {
   const { messages, systemPrompt, provider, apiKey, model } = params
 
@@ -319,7 +312,7 @@ export async function* streamAIChat(params: {
     const Anthropic = (await import('@anthropic-ai/sdk')).default
     const client = new Anthropic({ apiKey })
     const stream = client.messages.stream({
-      model: model || DEFAULT_ANTHROPIC_MODEL,
+      model,
       max_tokens: 4096,
       system: systemPrompt,
       messages,
@@ -336,7 +329,7 @@ export async function* streamAIChat(params: {
     const OpenAI = (await import('openai')).default
     const client = new OpenAI({ apiKey })
     const stream = await client.chat.completions.create({
-      model: model || DEFAULT_OPENAI_MODEL,
+      model,
       stream: true,
       messages: [
         { role: 'system', content: systemPrompt },
@@ -402,7 +395,7 @@ export async function callAnthropicWithTools(params: {
   messages: Array<{ role: 'user' | 'assistant'; content: unknown }>
   systemPrompt: string
   apiKey: string
-  model?: string
+  model: string
   tools: ToolDef[]
   onToolCall: (name: string, input: Record<string, unknown>) => Promise<string>
 }): Promise<{ text: string; toolCalls: ToolCall[] }> {
@@ -417,7 +410,7 @@ export async function callAnthropicWithTools(params: {
   for (let i = 0; i < 10; i++) {
     console.log(`[tool loop] iteration ${i}, messages: ${currentMessages.length}`)
     const response = await client.messages.create({
-      model: model || DEFAULT_ANTHROPIC_TOOL_MODEL,
+      model,
       max_tokens: 8096,
       system: systemPrompt,
       tools: tools.map(t => ({
@@ -462,7 +455,7 @@ export async function callOpenAIWithTools(params: {
   messages: Array<{ role: 'user' | 'assistant'; content: unknown }>
   systemPrompt: string
   apiKey: string
-  model?: string
+  model: string
   tools: ToolDef[]
   onToolCall: (name: string, input: Record<string, unknown>) => Promise<string>
 }): Promise<{ text: string; toolCalls: ToolCall[] }> {
@@ -490,7 +483,7 @@ export async function callOpenAIWithTools(params: {
   for (let i = 0; i < 10; i++) {
     console.log(`[tool loop openai] iteration ${i}, messages: ${currentMessages.length}`)
     const response = await client.chat.completions.create({
-      model: model || DEFAULT_OPENAI_TOOL_MODEL,
+      model,
       tools: openAITools,
       messages: currentMessages,
     })

@@ -2157,7 +2157,13 @@ ${worldList}`
 
   // ── Call AI ───────────────────────────────────────────────────────────────
 
-  const aiModel = settings?.aiModel?.trim() || undefined
+  const aiModel = settings?.aiModel?.trim()
+  if (!aiModel) {
+    const errMsg = await prisma.projectMessage.create({
+      data: { projectId: project.id, role: 'assistant', author: 'Daneel', content: 'No AI model configured. Go to Settings and set a model.' },
+    })
+    return NextResponse.json({ message, aiMessage: errMsg })
+  }
 
   let aiContent = ''
   let pollCreated = false

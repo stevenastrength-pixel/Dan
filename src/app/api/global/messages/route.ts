@@ -188,6 +188,13 @@ export async function POST(request: Request) {
     })
     return NextResponse.json({ message, aiMessage: errMsg })
   }
+  const aiModel = settings?.aiModel?.trim()
+  if (!aiModel) {
+    const errMsg = await prisma.globalMessage.create({
+      data: { role: 'assistant', author: 'Daneel', content: 'No AI model configured. Go to Settings and set a model.' },
+    })
+    return NextResponse.json({ message, aiMessage: errMsg })
+  }
 
   const contextDocs = await loadContextFiles(settings?.contextFiles ?? '[]')
   const systemPrompt = buildSystemPrompt(contextDocs)
@@ -225,7 +232,7 @@ export async function POST(request: Request) {
         messages: history,
         systemPrompt,
         apiKey: settings!.aiApiKey,
-        model: settings!.aiModel?.trim() || undefined,
+        model: aiModel,
         tools: GLOBAL_TOOLS,
         onToolCall: (n, i) => handleToolCall(n, i, requestingUser?.username),
       })
@@ -235,7 +242,7 @@ export async function POST(request: Request) {
         messages: history,
         systemPrompt,
         apiKey: settings!.aiApiKey,
-        model: settings!.aiModel?.trim() || undefined,
+        model: aiModel,
         tools: GLOBAL_TOOLS,
         onToolCall: (n, i) => handleToolCall(n, i, requestingUser?.username),
       })

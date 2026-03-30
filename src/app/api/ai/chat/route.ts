@@ -30,6 +30,13 @@ export async function POST(request: Request) {
       { status: 400, headers: { 'Content-Type': 'application/json' } }
     )
   }
+  const aiModel = settings?.aiModel?.trim()
+  if (!aiModel) {
+    return new Response(
+      JSON.stringify({ error: 'No AI model configured. Go to Settings and set a model.' }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } }
+    )
+  }
 
   // Optionally load the current chapter for context
   let chapter = null
@@ -84,7 +91,7 @@ export async function POST(request: Request) {
               systemPrompt,
               provider,
               apiKey: settings!.aiApiKey,
-              model: settings!.aiModel?.trim() || undefined,
+              model: aiModel,
             })
 
         for await (const text of generator) {
