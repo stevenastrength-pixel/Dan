@@ -138,9 +138,21 @@ Use the standard array from 5e: assign 15,14,13,12,10,8 to stats based on class.
     const jsonEnd = content.lastIndexOf('}')
     if (jsonStart === -1 || jsonEnd === -1) throw new Error(`No JSON object in response: ${content.slice(0, 200)}`)
     content = content.slice(jsonStart, jsonEnd + 1)
-    // Sanitize trailing commas before ] or } (common AI mistake)
-    content = content.replace(/,(\s*[}\]])/g, '$1')
-    const parsed = JSON.parse(content)
+    // Sanitize common AI JSON mistakes
+    content = content.replace(/,(\s*[}\]])/g, '$1')           // trailing commas
+    content = content.replace(/\}(\s*)\{/g, '},$1{')          // missing comma between objects in array
+    content = content.replace(/\](\s*)\[/g, '],$1[')          // missing comma between arrays
+    // Replace literal (unescaped) control characters inside strings
+    content = content.replace(/"((?:[^"\\]|\\.)*)"/g, (_m, inner) =>
+      '"' + inner.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t') + '"'
+    )
+    let parsed: Record<string, unknown>
+    try {
+      parsed = JSON.parse(content)
+    } catch (parseErr) {
+      console.error('[Character gen raw content]', content.slice(0, 500))
+      throw parseErr
+    }
 
     // Ensure required fields have sane defaults
     const result = {
