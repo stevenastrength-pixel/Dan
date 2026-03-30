@@ -121,11 +121,27 @@ function errorOpenClaw(tag: string, payload: unknown) {
   console.error(tag, truncateForLog(safeStringify(payload)))
 }
 
-function toOpenClawInputMessages(messages: Array<{ role: 'user' | 'assistant'; content: string }>): OpenClawResponsesMessageItem[] {
+function extractTextContent(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (Array.isArray(content)) {
+    return content
+      .map((b: unknown) => {
+        if (typeof b === 'object' && b !== null && 'text' in b && typeof (b as Record<string, unknown>).text === 'string') {
+          return (b as Record<string, unknown>).text as string
+        }
+        return ''
+      })
+      .filter(Boolean)
+      .join('\n')
+  }
+  return String(content ?? '')
+}
+
+function toOpenClawInputMessages(messages: Array<{ role: 'user' | 'assistant'; content: unknown }>): OpenClawResponsesMessageItem[] {
   return messages.map((message) => ({
     type: 'message',
     role: message.role,
-    content: message.content,
+    content: extractTextContent(message.content),
   }))
 }
 
@@ -523,7 +539,7 @@ export async function callOpenAIWithTools(params: {
  * to continue. Repeats until a final { reply } is received.
  */
 export async function callOpenClawWithTools(params: {
-  messages: Array<{ role: 'user' | 'assistant'; content: string }>
+  messages: Array<{ role: 'user' | 'assistant'; content: unknown }>
   systemPrompt: string
   openClawBaseUrl: string
   openClawApiKey?: string

@@ -18,6 +18,7 @@ type Poll = {
 type Chapter = { id: string; title: string; content: string; order: number; updatedAt: string }
 type Character = { id: string; name: string; role: string; description: string; notes: string; traits: string[] }
 type WorldEntry = { id: string; name: string; type: string; description: string; notes: string; updatedAt: string }
+type ProjectImage = { id: string; imageType: string; title: string; filename: string; url: string; createdAt: string }
 
 type MainView =
   | { type: 'console' }
@@ -91,7 +92,7 @@ function ConfirmToast({ message, onConfirm, onCancel }: { message: string; onCon
 type CtxMenuItem = { label: string; action: () => void; danger?: boolean }
 
 function SidebarSection({
-  label, items, selectedId, onSelect, onCreate, createPlaceholder, loading, getContextMenu
+  label, items, selectedId, onSelect, onCreate, createPlaceholder, loading, getContextMenu, onImportFile
 }: {
   label: string
   items: Array<{ id: string; label: string; sub?: string }>
@@ -101,12 +102,17 @@ function SidebarSection({
   createPlaceholder: string
   loading?: boolean
   getContextMenu?: (id: string, idx: number) => CtxMenuItem[]
+  onImportFile?: (title: string, file: File) => void
 }) {
   const [open, setOpen] = useState(true)
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
   const [ctxMenu, setCtxMenu] = useState<{ id: string; x: number; y: number } | null>(null)
   const [renaming, setRenaming] = useState<{ id: string; value: string } | null>(null)
+  const [importMode, setImportMode] = useState(false)
+  const [importTitle, setImportTitle] = useState('')
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!ctxMenu) return
@@ -122,6 +128,15 @@ function SidebarSection({
     setCreating(false)
   }
 
+  const submitImport = () => {
+    if (!importFile) return
+    const title = importTitle.trim() || importFile.name.replace(/\.[^.]+$/, '')
+    onImportFile!(title, importFile)
+    setImportMode(false)
+    setImportTitle('')
+    setImportFile(null)
+  }
+
   return (
     <div className="border-t border-slate-800/60 first:border-t-0">
       <div className="flex items-center justify-between px-3 py-2">
@@ -130,9 +145,9 @@ function SidebarSection({
           <span>{open ? '▼' : '▶'}</span>{label}
         </button>
         {open && (
-          <button onClick={() => setCreating(v => !v)}
+          <button onClick={() => { setCreating(v => !v); setImportMode(false) }}
             className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors font-medium">
-            {creating ? '✕' : '+'}
+            {creating || importMode ? '✕' : '+'}
           </button>
         )}
       </div>
@@ -146,6 +161,37 @@ function SidebarSection({
                 placeholder={createPlaceholder}
                 className="flex-1 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-1 focus:ring-emerald-500/50" />
               <button onClick={submit} className="text-xs text-emerald-400 hover:text-emerald-300 px-1">↵</button>
+              {onImportFile && (
+                <button onClick={() => { setCreating(false); setImportMode(true) }}
+                  className="text-xs text-slate-500 hover:text-slate-300 px-1" title="Import from file">📄</button>
+              )}
+            </div>
+          )}
+          {importMode && onImportFile && (
+            <div className="px-3 pb-3 space-y-1.5">
+              <input
+                value={importTitle}
+                onChange={e => setImportTitle(e.target.value)}
+                placeholder={createPlaceholder}
+                className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+              />
+              <input ref={fileInputRef} type="file" accept=".txt,.md,.markdown,.pdf,.png,.jpg,.jpeg,.webp"
+                onChange={e => {
+                  const f = e.target.files?.[0] ?? null
+                  setImportFile(f)
+                  if (f && !importTitle) setImportTitle(f.name.replace(/\.[^.]+$/, ''))
+                }}
+                className="hidden" />
+              <div className="flex gap-1">
+                <button onClick={() => fileInputRef.current?.click()}
+                  className="flex-1 py-1 rounded border border-slate-700 text-[10px] text-slate-400 hover:text-slate-200 hover:border-slate-600 transition-colors truncate">
+                  {importFile ? importFile.name : 'Choose file…'}
+                </button>
+                <button onClick={submitImport} disabled={!importFile}
+                  className="text-xs text-emerald-400 hover:text-emerald-300 disabled:opacity-40 px-1">↵</button>
+                <button onClick={() => { setImportMode(false); setImportFile(null); setImportTitle('') }}
+                  className="text-xs text-slate-600 hover:text-slate-400 px-1">✕</button>
+              </div>
             </div>
           )}
           {loading && <p className="text-xs text-slate-600 px-3 pb-2">Loading…</p>}
@@ -224,6 +270,167 @@ function SidebarSection({
   )
 }
 
+function GallerySection({ label, projectSlug, imageType }: {
+  label: string
+  projectSlug: string
+  imageType: 'concept_art' | 'map'
+}) {
+  const [open, setOpen] = useState(true)
+  const [images, setImages] = useState<ProjectImage[]>([])
+  const [uploading, setUploading] = useState(false)
+  const [lightboxIdx, setLightboxIdx] = useState<number | null>(null)
+  const [mounted, setMounted] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => { setMounted(true) }, [])
+
+  useEffect(() => {
+    fetch(`/api/projects/${projectSlug}/images?type=${imageType}`)
+      .then(r => r.ok ? r.json() : [])
+      .then(setImages)
+      .catch(() => {})
+  }, [projectSlug, imageType])
+
+  useEffect(() => {
+    if (lightboxIdx === null) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setLightboxIdx(null)
+      if (e.key === 'ArrowLeft') setLightboxIdx(i => i !== null && i > 0 ? i - 1 : i)
+      if (e.key === 'ArrowRight') setLightboxIdx(i => i !== null && i < images.length - 1 ? i + 1 : i)
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [lightboxIdx, images.length])
+
+  const upload = async (file: File) => {
+    setUploading(true)
+    const fd = new FormData()
+    fd.append('file', file)
+    fd.append('imageType', imageType)
+    fd.append('title', file.name.replace(/\.[^.]+$/, ''))
+    try {
+      const res = await fetch(`/api/projects/${projectSlug}/images`, { method: 'POST', body: fd })
+      if (res.ok) { const img = await res.json(); setImages(prev => [...prev, img]) }
+    } catch { /* no-op */ }
+    setUploading(false)
+  }
+
+  const deleteImage = async (id: string, idx: number) => {
+    await fetch(`/api/projects/${projectSlug}/images/${id}`, { method: 'DELETE' })
+    setImages(prev => prev.filter(i => i.id !== id))
+    if (lightboxIdx !== null) {
+      if (lightboxIdx === idx) setLightboxIdx(null)
+      else if (lightboxIdx > idx) setLightboxIdx(lightboxIdx - 1)
+    }
+  }
+
+  const lightbox = lightboxIdx !== null && mounted && typeof document !== 'undefined' ? createPortal(
+    <div
+      className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center"
+      onClick={() => setLightboxIdx(null)}
+    >
+      <button
+        className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center text-white/60 hover:text-white text-xl transition-colors"
+        onClick={() => setLightboxIdx(null)}
+      >✕</button>
+      {lightboxIdx > 0 && (
+        <button
+          className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center text-white/60 hover:text-white text-4xl transition-colors"
+          onClick={e => { e.stopPropagation(); setLightboxIdx(i => i !== null ? i - 1 : i) }}
+        >‹</button>
+      )}
+      {lightboxIdx < images.length - 1 && (
+        <button
+          className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center text-white/60 hover:text-white text-4xl transition-colors"
+          onClick={e => { e.stopPropagation(); setLightboxIdx(i => i !== null ? i + 1 : i) }}
+        >›</button>
+      )}
+      <div
+        className="flex flex-col items-center gap-3 px-16"
+        onClick={e => e.stopPropagation()}
+      >
+        <img
+          src={images[lightboxIdx].url}
+          alt={images[lightboxIdx].title}
+          className="max-h-[82vh] max-w-[88vw] object-contain rounded-lg shadow-2xl"
+        />
+        {images[lightboxIdx].title && (
+          <p className="text-slate-300 text-sm">{images[lightboxIdx].title}</p>
+        )}
+        <p className="text-slate-600 text-[10px]">{lightboxIdx + 1} / {images.length}</p>
+      </div>
+    </div>,
+    document.body
+  ) : null
+
+  return (
+    <div className="border-t border-slate-800/60">
+      <div className="flex items-center justify-between px-3 py-2">
+        <button
+          onClick={() => setOpen(v => !v)}
+          className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-500 uppercase tracking-wider hover:text-slate-300 transition-colors"
+        >
+          <span>{open ? '▼' : '▶'}</span>{label}
+        </button>
+        {open && (
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors font-medium disabled:opacity-40"
+            title="Upload image"
+          >
+            {uploading ? '…' : '+'}
+          </button>
+        )}
+      </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/gif,image/webp"
+        className="hidden"
+        onChange={e => {
+          const f = e.target.files?.[0]
+          if (f) { upload(f); e.target.value = '' }
+        }}
+      />
+
+      {open && (
+        <div className="px-2 pb-2">
+          {images.length === 0 && !uploading && (
+            <p className="text-[10px] text-slate-600 px-1 pb-1">No images yet — click + to upload</p>
+          )}
+          {uploading && (
+            <p className="text-[10px] text-slate-500 px-1 pb-1 animate-pulse">Uploading…</p>
+          )}
+          <div className="grid grid-cols-2 gap-1.5">
+            {images.map((img, idx) => (
+              <div
+                key={img.id}
+                className="group relative aspect-square rounded-lg overflow-hidden bg-slate-800 cursor-pointer"
+                onClick={() => setLightboxIdx(idx)}
+              >
+                <img src={img.url} alt={img.title} className="w-full h-full object-cover" />
+                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/50 transition-colors" />
+                <p className="absolute bottom-0 inset-x-0 px-1.5 py-1 text-[9px] text-white opacity-0 group-hover:opacity-90 transition-opacity truncate leading-tight">
+                  {img.title}
+                </p>
+                <button
+                  className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 flex items-center justify-center text-[9px] text-white/0 group-hover:text-white/70 hover:!text-white hover:bg-red-600/80 transition-colors"
+                  onClick={e => { e.stopPropagation(); deleteImage(img.id, idx) }}
+                  title="Delete"
+                >✕</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {lightbox}
+    </div>
+  )
+}
+
 function Sidebar({
   documents, selectedView, onSelectDoc, onSelectChapter, onSelectCharacter, onSelectWorld,
   chapters, characters, worldEntries,
@@ -232,7 +439,7 @@ function Sidebar({
   onRenameCharacter, onDeleteCharacter,
   onRenameWorld, onDeleteWorld,
   chaptersLoading, charactersLoading, worldLoading,
-  projectType,
+  projectType, projectSlug, onImportFile,
 }: {
   documents: ProjectDocument[]
   selectedView: MainView
@@ -258,6 +465,8 @@ function Sidebar({
   charactersLoading: boolean
   worldLoading: boolean
   projectType: string
+  projectSlug: string
+  onImportFile?: (title: string, file: File) => void
 }) {
   const selectedDocKey = selectedView.type === 'document' ? selectedView.key : null
   const selectedChapterId = selectedView.type === 'chapter' ? selectedView.id : null
@@ -396,6 +605,7 @@ function Sidebar({
         selectedId={selectedChapterId}
         onSelect={onSelectChapter}
         onCreate={onCreateChapter}
+        onImportFile={projectType !== 'campaign' ? onImportFile : undefined}
         createPlaceholder={projectType === 'campaign' ? 'Part title…' : 'Chapter title…'}
         loading={chaptersLoading}
         getContextMenu={chapterContextMenu}
@@ -424,6 +634,14 @@ function Sidebar({
         loading={worldLoading}
         getContextMenu={worldContextMenu}
       />
+
+      {/* Concept Art — both project types */}
+      <GallerySection label="Concept Art" projectSlug={projectSlug} imageType="concept_art" />
+
+      {/* Maps — campaign only */}
+      {projectType === 'campaign' && (
+        <GallerySection label="Maps" projectSlug={projectSlug} imageType="map" />
+      )}
     </div>
   )
 }
@@ -1524,6 +1742,35 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
     }
   }
 
+  const createChapterFromFile = async (title: string, file: File) => {
+    // Create the chapter first
+    const res = await fetch('/api/chapters', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, projectSlug: project.slug }),
+    })
+    if (!res.ok) return
+    const chapter = await res.json()
+    await fetchChapters()
+    setView({ type: 'chapter', id: chapter.id })
+
+    // Transcribe in background — show a toast so the user knows it's working
+    showToast(`Transcribing "${file.name}"…`)
+    const fd = new FormData()
+    fd.append('file', file)
+    const tRes = await fetch('/api/chapters/transcribe', { method: 'POST', body: fd })
+    if (!tRes.ok) { showToast('Transcription failed.'); return }
+    const { content } = await tRes.json()
+    if (!content) return
+
+    // Save transcribed content to the chapter
+    await fetch(`/api/chapters/${chapter.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    })
+    await fetchChapters()
+    showToast('Transcription complete.')
+  }
+
   const createCharacter = async (name: string) => {
     const res = await fetch('/api/characters', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1904,6 +2151,8 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
           charactersLoading={!charactersLoaded}
           worldLoading={!worldLoaded}
           projectType={project.type}
+          projectSlug={project.slug}
+          onImportFile={createChapterFromFile}
         />
       </div>
     </div>

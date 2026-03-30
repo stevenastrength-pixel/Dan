@@ -46,6 +46,7 @@ model Project {
   timelineEvents    TimelineEvent[]
   campaignCreatures CampaignCreature[]
   campaignMagicItems CampaignMagicItem[]
+  images            ProjectImage[]
 }
 
 model ProjectMessage {
@@ -734,4 +735,17 @@ model PlayRunExplored {
   clearedAt    DateTime @default(now())
 
   @@unique([runId, keyedAreaId])
+}
+
+// ─── Project Gallery ───────────────────────────────────────────────────────────
+
+model ProjectImage {
+  id          String   @id @default(cuid())
+  projectId   Int
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  imageType   String   @default("concept_art")  // 'concept_art' | 'map'
+  title       String   @default("")
+  filename    String
+  url         String
+  createdAt   DateTime @default(now())
 }

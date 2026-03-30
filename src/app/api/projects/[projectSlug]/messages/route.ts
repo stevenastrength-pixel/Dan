@@ -5,6 +5,9 @@ import { prisma } from '@/lib/prisma'
 import { streamAIChat, streamOpenClaw, callAnthropicWithTools, callOpenAIWithTools, callOpenClawWithTools, type OpenClawContext, type ToolDef, type ToolCall } from '@/lib/ai'
 import { getUserFromRequest } from '@/lib/auth'
 import { readFile } from 'fs/promises'
+import { join } from 'path'
+
+const UPLOADS_DIR = join(process.cwd(), 'data', 'uploads')
 
 async function loadContextFiles(contextFilesJson: string): Promise<Array<{ key: string; title: string; content: string }>> {
   let paths: string[] = []
@@ -331,10 +334,59 @@ ${characterList}
 ## World Building
 ${worldList}`
 
-  // Convert recent chat to AI message format (user messages attributed by name)
-  const aiMessages = recentMessages.map(m => ({
-    role: m.role as 'user' | 'assistant',
-    content: m.role === 'user' ? `[${m.author}]: ${m.content}` : m.content,
+  // Convert recent chat to AI message format, enriching with file content when available
+  const aiMessages = await Promise.all(recentMessages.map(async m => {
+    const text = m.role === 'user' ? `[${m.author}]: ${m.content}` : m.content
+
+    if (!m.imageUrl) return { role: m.role as 'user' | 'assistant', content: text }
+
+    const filename = m.imageUrl.split('/').pop() ?? ''
+    const originalName = (m.fileName ?? filename).toLowerCase()
+    const isImage = /\.(jpg|jpeg|png|gif|webp)$/.test(originalName)
+    const isPdf = originalName.endsWith('.pdf')
+    const isText = /\.(txt|md|markdown|rtf|csv)$/.test(originalName)
+
+    try {
+      const bytes = await readFile(join(UPLOADS_DIR, filename))
+
+      if (isText) {
+        const fileText = bytes.toString('utf-8')
+        return {
+          role: m.role as 'user' | 'assistant',
+          content: `${text}\n\n[Attached file: ${m.fileName ?? filename}]\n${fileText}`,
+        }
+      }
+
+      const base64 = bytes.toString('base64')
+
+      if (isImage) {
+        const ext = originalName.split('.').pop() ?? 'jpg'
+        const mediaType = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : 'image/jpeg'
+        if (provider === 'openai') {
+          return { role: m.role as 'user' | 'assistant', content: [
+            { type: 'image_url', image_url: { url: `data:${mediaType};base64,${base64}` } },
+            { type: 'text', text },
+          ]}
+        }
+        // Anthropic / OpenClaw
+        return { role: m.role as 'user' | 'assistant', content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
+          { type: 'text', text },
+        ]}
+      }
+
+      if (isPdf) {
+        if (provider === 'openai') {
+          return { role: m.role as 'user' | 'assistant', content: `${text}\n\n[Attached PDF: ${m.fileName ?? filename}]` }
+        }
+        return { role: m.role as 'user' | 'assistant', content: [
+          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
+          { type: 'text', text: `${text}\n[Attached PDF: ${m.fileName ?? filename}]` },
+        ]}
+      }
+    } catch { /* file not readable — fall back to text */ }
+
+    return { role: m.role as 'user' | 'assistant', content: text }
   }))
 
   const openClawContext: OpenClawContext = {
