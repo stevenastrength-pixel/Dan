@@ -90,9 +90,6 @@ function LogLine({ entry, projectName }: { entry: LogEntry; projectName?: string
     )
   }
 
-  if (entry.type === 'narration' && entry.speakerName === 'Daneel') {
-    return <p className={`${base} text-slate-200 italic`}>{entry.content}</p>
-  }
   if (entry.type === 'narration') {
     return <p className={`${base} text-slate-200`}>{entry.content}</p>
   }
