@@ -79,22 +79,24 @@ Use the standard array from 5e: assign 15,14,13,12,10,8 to stats based on class.
     const provider = settings?.aiProvider ?? 'anthropic'
 
     if (provider === 'openai') {
-      const openai = new OpenAI({ apiKey: settings!.aiApiKey! })
+      const openai = new OpenAI({ apiKey: settings!.aiApiKey })
       const resp = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: settings?.aiModel || 'gpt-4o-mini',
         messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMsg }],
         temperature: 0.9,
       })
       content = resp.choices[0]?.message?.content ?? ''
     } else {
-      // anthropic or openclaw both use Anthropic SDK here
-      const apiKey = settings!.aiApiKey!
+      // anthropic or openclaw — openclaw uses its own key + baseURL
+      const apiKey = provider === 'openclaw'
+        ? (settings?.openClawApiKey ?? settings?.aiApiKey ?? '')
+        : (settings?.aiApiKey ?? '')
       const baseURL = provider === 'openclaw' && settings?.openClawBaseUrl
         ? settings.openClawBaseUrl.replace(/\/$/, '') + '/v1'
         : undefined
       const anthropic = new Anthropic({ apiKey, ...(baseURL ? { baseURL } : {}) })
       const resp = await anthropic.messages.create({
-        model: 'claude-haiku-4-5-20251001',
+        model: settings?.aiModel || 'claude-haiku-4-5-20251001',
         max_tokens: 1500,
         system: systemPrompt,
         messages: [{ role: 'user', content: userMsg }],
@@ -102,8 +104,12 @@ Use the standard array from 5e: assign 15,14,13,12,10,8 to stats based on class.
       content = resp.content[0]?.type === 'text' ? resp.content[0].text : ''
     }
 
-    // Strip markdown code fences if present
+    // Extract JSON — strip fences and find the first {...} block
     content = content.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim()
+    const jsonStart = content.indexOf('{')
+    const jsonEnd = content.lastIndexOf('}')
+    if (jsonStart === -1 || jsonEnd === -1) throw new Error(`No JSON object in response: ${content.slice(0, 200)}`)
+    content = content.slice(jsonStart, jsonEnd + 1)
     const parsed = JSON.parse(content)
 
     // Ensure required fields have sane defaults
@@ -142,7 +148,8 @@ Use the standard array from 5e: assign 15,14,13,12,10,8 to stats based on class.
 
     return NextResponse.json(result)
   } catch (err) {
-    console.error('[Character generate error]', err)
-    return NextResponse.json({ error: 'Failed to generate character. Try again.' }, { status: 500 })
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('[Character generate error]', msg)
+    return NextResponse.json({ error: `Failed to generate character: ${msg}` }, { status: 500 })
   }
 }
