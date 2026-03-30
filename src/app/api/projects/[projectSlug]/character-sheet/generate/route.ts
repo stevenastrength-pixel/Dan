@@ -64,6 +64,8 @@ Return ONLY a JSON object with these exact fields (no markdown, no explanation):
   "spellSlots": {},
   "attacks": [{ "name": string, "attackBonus": number, "damage": string, "damageType": string, "range": string, "notes": string }],
   "features": [{ "name": string, "source": string, "description": string }],
+  "inventory": [{ "name": string, "quantity": number, "weight": number, "notes": string, "isEquipped": boolean }],
+  "currency": { "cp": number, "sp": number, "ep": number, "gp": number, "pp": number },
   "personalityTraits": string,
   "ideals": string,
   "bonds": string,
@@ -71,7 +73,7 @@ Return ONLY a JSON object with these exact fields (no markdown, no explanation):
   "backstory": string
 }
 
-Use the standard array from 5e: assign 15,14,13,12,10,8 to stats based on class. Calculate HP as class hit die + CON modifier. Calculate AC as 10 + DEX mod (or 11 + DEX for leather, 16 for chain, etc based on starting equipment). Add 2 saving throw proficiencies and 2-4 skill proficiencies appropriate for the class. Make the character thematically fitting for the campaign setting.`
+Use the standard array from 5e: assign 15,14,13,12,10,8 to stats based on class. Calculate HP as class hit die + CON modifier. Calculate AC as 10 + DEX mod (or 11 + DEX for leather, 16 for chain, etc based on starting equipment). Add 2 saving throw proficiencies and 2-4 skill proficiencies appropriate for the class. Make the character thematically fitting for the campaign setting. For inventory, include the class starting equipment (weapons, armor, adventuring gear) with isEquipped true for worn/wielded items. Include starting currency appropriate for the background.`
 
   const userMsg = prompt
     ? `Generate a character matching this description: ${prompt}`
@@ -180,6 +182,8 @@ Use the standard array from 5e: assign 15,14,13,12,10,8 to stats based on class.
       inventory: [],
       currency: { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 },
       features: parsed.features ?? [],
+      inventory: parsed.inventory ?? [],
+      currency: parsed.currency ?? { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 },
       personalityTraits: String(parsed.personalityTraits ?? ''),
       ideals: String(parsed.ideals ?? ''),
       bonds: String(parsed.bonds ?? ''),

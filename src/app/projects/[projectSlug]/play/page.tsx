@@ -159,6 +159,7 @@ interface SheetData {
   STR: number; DEX: number; CON: number; INT: number; WIS: number; CHA: number
   maxHP: number; currentHP: number; tempHP: number; AC: number; speed: number; proficiencyBonus: number
   savingThrowProfs: string; skillProfs: string; attacks: string; spellSlots: string
+  inventory: string; currency: string
   features: string; personalityTraits: string; ideals: string; bonds: string; flaws: string; backstory: string
   passivePerception: number; initiative: number; inspiration: boolean
 }
@@ -188,7 +189,7 @@ function PlayerDrawer({ slug, player, run, onClose }: {
   run: PlayRun
   onClose: () => void
 }) {
-  const [tab, setTab] = useState<'sheet' | 'journal'>('sheet')
+  const [tab, setTab] = useState<'sheet' | 'equipment' | 'journal'>('sheet')
   const [sheet, setSheet] = useState<SheetData | null>(null)
   const [quests, setQuests] = useState<QuestData[]>([])
   const [exploredAreas, setExploredAreas] = useState<string[]>([])
@@ -223,20 +224,26 @@ function PlayerDrawer({ slug, player, run, onClose }: {
   let saves: Record<string, boolean> = {}
   let skills: Record<string, { prof: boolean; expertise: boolean }> = {}
   let spellSlots: Record<string, { max: number; used: number }> = {}
+  let attacks: Array<{ name: string; attackBonus: number; damage: string; damageType: string; range: string; notes: string }> = []
+  let inventory: Array<{ name: string; quantity: number; notes: string; isEquipped: boolean }> = []
+  let currency: { cp: number; sp: number; ep: number; gp: number; pp: number } = { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 }
   if (sheet) {
     try { saves = JSON.parse(sheet.savingThrowProfs) } catch {}
     try { skills = JSON.parse(sheet.skillProfs) } catch {}
     try { spellSlots = JSON.parse(sheet.spellSlots) } catch {}
+    try { attacks = JSON.parse(sheet.attacks) } catch {}
+    try { inventory = JSON.parse(sheet.inventory) } catch {}
+    try { currency = JSON.parse(sheet.currency) } catch {}
   }
 
   return (
     <div className="w-64 h-full bg-slate-950 border-l border-slate-800/60 flex flex-col">
         {/* Header */}
         <div className="flex items-center gap-1 px-3 py-3 border-b border-slate-800/60">
-          {(['sheet', 'journal'] as const).map(t => (
+          {([['sheet', 'Character'], ['equipment', 'Equipment'], ['journal', 'Journal']] as const).map(([t, label]) => (
             <button key={t} onClick={() => setTab(t)}
               className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors ${tab === t ? 'bg-violet-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}>
-              {t === 'sheet' ? 'Character' : 'Journal'}
+              {label}
             </button>
           ))}
         </div>
@@ -352,6 +359,78 @@ function PlayerDrawer({ slug, player, run, onClose }: {
                         <p className="text-xs text-slate-400">{x.val}</p>
                       </div>
                     ))}
+                  </div>
+                )}
+              </div>
+            )
+          )}
+
+          {/* ── Equipment tab ── */}
+          {tab === 'equipment' && (
+            loadingSheet ? <p className="text-sm text-slate-500">Loading…</p> : !sheet ? <p className="text-sm text-slate-500">No character sheet found.</p> : (
+              <div className="space-y-5">
+                {/* Attacks */}
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2">Attacks</p>
+                  {attacks.length === 0 ? (
+                    <p className="text-xs text-slate-600 italic">No attacks.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {attacks.map((a, i) => (
+                        <div key={i} className="bg-slate-800/50 rounded-lg p-2.5 border border-slate-700/40">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-semibold text-slate-200">{a.name}</span>
+                            <span className="text-xs text-emerald-400 font-mono">{a.attackBonus >= 0 ? `+${a.attackBonus}` : a.attackBonus}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-[10px] text-slate-500">
+                            <span className="text-amber-300 font-mono">{a.damage}</span>
+                            <span>{a.damageType}</span>
+                            <span className="ml-auto">{a.range}</span>
+                          </div>
+                          {a.notes && <p className="text-[10px] text-slate-600 mt-1">{a.notes}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Inventory */}
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2">Inventory</p>
+                  {inventory.length === 0 ? (
+                    <p className="text-xs text-slate-600 italic">No items.</p>
+                  ) : (
+                    <div className="space-y-1">
+                      {inventory.map((item, i) => (
+                        <div key={i} className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs ${item.isEquipped ? 'bg-emerald-500/10 border border-emerald-500/20 text-slate-200' : 'text-slate-400'}`}>
+                          {item.isEquipped && <span className="text-emerald-400 text-[9px] font-bold uppercase shrink-0">Eq</span>}
+                          <span className="flex-1 truncate">{item.name}</span>
+                          {item.quantity > 1 && <span className="text-slate-500 shrink-0">×{item.quantity}</span>}
+                          {item.notes && <span className="text-slate-600 text-[9px] shrink-0 truncate max-w-[60px]">{item.notes}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Currency */}
+                {(currency.gp > 0 || currency.sp > 0 || currency.cp > 0 || currency.ep > 0 || currency.pp > 0) && (
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2">Currency</p>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { label: 'PP', val: currency.pp, color: 'text-violet-300' },
+                        { label: 'GP', val: currency.gp, color: 'text-amber-300' },
+                        { label: 'EP', val: currency.ep, color: 'text-slate-300' },
+                        { label: 'SP', val: currency.sp, color: 'text-slate-400' },
+                        { label: 'CP', val: currency.cp, color: 'text-orange-400' },
+                      ].filter(c => c.val > 0).map(c => (
+                        <div key={c.label} className="bg-slate-800/60 rounded-lg px-2.5 py-1.5 text-center">
+                          <p className="text-[9px] text-slate-600 uppercase">{c.label}</p>
+                          <p className={`text-xs font-bold ${c.color}`}>{c.val}</p>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>

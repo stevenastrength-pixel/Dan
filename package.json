@@ -1,6 +1,6 @@
 {
   "name": "distributed-authoring-nexus",
-  "version": "1.21.2",
+  "version": "1.22.0",
   "private": true,
   "scripts": {
     "dev": "next dev --hostname 0.0.0.0",

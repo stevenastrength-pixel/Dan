@@ -292,6 +292,7 @@ async function buildCrawlerPrompt(project: { id: number; name: string; descripti
   type Player = { characterName: string; username: string; currentHP: number; maxHP: number; tempHP: number; level: number; xp: number; deathState: string }
   type Combatant = { id: number; name: string; currentHP: number; maxHP: number; AC: number; initiative: number }
   type Explored = { keyedAreaId: number | null }
+  type CharSheet = { username: string; attacks: string; inventory: string }
 
   const [documents, quests, players, combatants, explored] = await Promise.all([
     prisma.projectDocument.findMany({ where: { projectId: project.id } }) as Promise<Doc[]>,
@@ -303,6 +304,13 @@ async function buildCrawlerPrompt(project: { id: number; name: string; descripti
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (prisma as any).playRunExplored.findMany({ where: { runId: run.id } }) as Promise<Explored[]>,
   ])
+
+  // Load character sheets to get attacks + equipped items
+  const charSheets = await prisma.characterSheet.findMany({
+    where: { projectId: project.id, username: { in: players.map(p => p.username) } },
+    select: { username: true, attacks: true, inventory: true },
+  }) as CharSheet[]
+  const sheetByUser = new Map(charSheets.map(s => [s.username, s]))
 
   // Current area context
   let areaContext = 'The party has not entered a specific area yet.'
@@ -323,9 +331,25 @@ async function buildCrawlerPrompt(project: { id: number; name: string; descripti
   }
 
   // Party state
-  const partyLines = players.map(p =>
-    `- **${p.characterName}** (${p.username}): HP ${p.currentHP}/${p.maxHP}${p.tempHP > 0 ? `+${p.tempHP}tmp` : ''}, Level ${p.level}, XP ${p.xp}, ${p.deathState !== 'alive' ? `**${p.deathState.toUpperCase()}**` : 'alive'}`
-  ).join('\n')
+  const partyLines = players.map(p => {
+    const cs = sheetByUser.get(p.username)
+    let attackSummary = ''
+    let gearSummary = ''
+    if (cs) {
+      try {
+        const attacks: Array<{ name: string; attackBonus: number; damage: string; damageType: string; range: string }> = JSON.parse(cs.attacks)
+        if (attacks.length > 0) {
+          attackSummary = ` | Attacks: ${attacks.map(a => `${a.name} (+${a.attackBonus} ${a.damage} ${a.damageType}, ${a.range})`).join(', ')}`
+        }
+      } catch {}
+      try {
+        const inv: Array<{ name: string; quantity: number; isEquipped: boolean }> = JSON.parse(cs.inventory)
+        const equipped = inv.filter(i => i.isEquipped).map(i => i.quantity > 1 ? `${i.name} ×${i.quantity}` : i.name)
+        if (equipped.length > 0) gearSummary = ` | Equipped: ${equipped.join(', ')}`
+      } catch {}
+    }
+    return `- **${p.characterName}** (${p.username}): HP ${p.currentHP}/${p.maxHP}${p.tempHP > 0 ? `+${p.tempHP}tmp` : ''}, Level ${p.level}, XP ${p.xp}, ${p.deathState !== 'alive' ? `**${p.deathState.toUpperCase()}**` : 'alive'}${attackSummary}${gearSummary}`
+  }).join('\n')
 
   // Combat state
   const combatLines = run.inCombat && combatants.length > 0
