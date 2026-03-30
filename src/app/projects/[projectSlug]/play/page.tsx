@@ -53,6 +53,7 @@ interface PlayRun {
   players: RunPlayer[]
   combatants: RunCombatant[]
   log: LogEntry[]
+  explored: Array<{ id: number; keyedAreaId: number | null }>
 }
 
 // ─── Log Entry component ──────────────────────────────────────────────────────
@@ -146,6 +147,266 @@ function CombatantRow({ c }: { c: RunCombatant }) {
         <div className={`h-full ${color} rounded-full`} style={{ width: `${pct}%` }} />
       </div>
       <span className="text-xs text-slate-400 tabular-nums w-12 text-right">{c.currentHP}/{c.maxHP}</span>
+    </div>
+  )
+}
+
+// ─── Player Drawer ────────────────────────────────────────────────────────────
+
+interface SheetData {
+  characterName: string; className: string; subclass: string; race: string; background: string
+  level: number; xp: number; alignment: string
+  STR: number; DEX: number; CON: number; INT: number; WIS: number; CHA: number
+  maxHP: number; currentHP: number; tempHP: number; AC: number; speed: number; proficiencyBonus: number
+  savingThrowProfs: string; skillProfs: string; attacks: string; spellSlots: string
+  features: string; personalityTraits: string; ideals: string; bonds: string; flaws: string; backstory: string
+  passivePerception: number; initiative: number; inspiration: boolean
+}
+
+interface QuestData { id: number; name: string; questType: string; status: string; description: string }
+interface ExploredArea { id: number; keyedAreaId: number | null }
+
+const ABILITY_NAMES = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'] as const
+const ALL_SKILLS: { name: string; ability: string }[] = [
+  { name: 'Acrobatics', ability: 'DEX' }, { name: 'Animal Handling', ability: 'WIS' },
+  { name: 'Arcana', ability: 'INT' }, { name: 'Athletics', ability: 'STR' },
+  { name: 'Deception', ability: 'CHA' }, { name: 'History', ability: 'INT' },
+  { name: 'Insight', ability: 'WIS' }, { name: 'Intimidation', ability: 'CHA' },
+  { name: 'Investigation', ability: 'INT' }, { name: 'Medicine', ability: 'WIS' },
+  { name: 'Nature', ability: 'INT' }, { name: 'Perception', ability: 'WIS' },
+  { name: 'Performance', ability: 'CHA' }, { name: 'Persuasion', ability: 'CHA' },
+  { name: 'Religion', ability: 'INT' }, { name: 'Sleight of Hand', ability: 'DEX' },
+  { name: 'Stealth', ability: 'DEX' }, { name: 'Survival', ability: 'WIS' },
+]
+
+function mod(score: number) { return Math.floor((score - 10) / 2) }
+function fmtMod(n: number) { return n >= 0 ? `+${n}` : `${n}` }
+
+function PlayerDrawer({ slug, player, run, onClose }: {
+  slug: string
+  player: RunPlayer
+  run: PlayRun
+  onClose: () => void
+}) {
+  const [tab, setTab] = useState<'sheet' | 'journal'>('sheet')
+  const [sheet, setSheet] = useState<SheetData | null>(null)
+  const [quests, setQuests] = useState<QuestData[]>([])
+  const [exploredAreas, setExploredAreas] = useState<string[]>([])
+  const [loadingSheet, setLoadingSheet] = useState(true)
+  const [loadingJournal, setLoadingJournal] = useState(true)
+
+  useEffect(() => {
+    fetch(`/api/projects/${slug}/character-sheet`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setSheet(d); setLoadingSheet(false) })
+  }, [slug])
+
+  useEffect(() => {
+    fetch(`/api/quests?projectSlug=${slug}`)
+      .then(r => r.ok ? r.json() : [])
+      .then(async (qs: QuestData[]) => {
+        setQuests(qs)
+        // Resolve explored keyed area names
+        const explored: ExploredArea[] = run.explored ?? []
+        const ids = explored.map(e => e.keyedAreaId).filter(Boolean) as number[]
+        if (ids.length > 0) {
+          const res = await fetch(`/api/keyed-areas?ids=${ids.join(',')}`)
+          if (res.ok) {
+            const areas: Array<{ id: number; key: string; title: string; location: { name: string } }> = await res.json()
+            setExploredAreas(areas.map(a => `${a.key} — ${a.title} (${a.location.name})`))
+          }
+        }
+        setLoadingJournal(false)
+      })
+  }, [slug, run.explored])
+
+  let saves: Record<string, boolean> = {}
+  let skills: Record<string, { prof: boolean; expertise: boolean }> = {}
+  let spellSlots: Record<string, { max: number; used: number }> = {}
+  if (sheet) {
+    try { saves = JSON.parse(sheet.savingThrowProfs) } catch {}
+    try { skills = JSON.parse(sheet.skillProfs) } catch {}
+    try { spellSlots = JSON.parse(sheet.spellSlots) } catch {}
+  }
+
+  return (
+    <div className="fixed inset-0 z-40 flex justify-end">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative w-full max-w-sm bg-slate-900 border-l border-slate-700 flex flex-col h-full shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800">
+          <div className="flex gap-1">
+            {(['sheet', 'journal'] as const).map(t => (
+              <button key={t} onClick={() => setTab(t)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-colors ${tab === t ? 'bg-violet-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}>
+                {t === 'sheet' ? 'Character' : 'Journal'}
+              </button>
+            ))}
+          </div>
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-300 text-xl leading-none">×</button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4">
+          {/* ── Character Sheet tab ── */}
+          {tab === 'sheet' && (
+            loadingSheet ? <p className="text-sm text-slate-500">Loading…</p> : !sheet ? <p className="text-sm text-slate-500">No character sheet found.</p> : (
+              <div className="space-y-4">
+                {/* Identity */}
+                <div>
+                  <p className="text-base font-bold text-slate-200">{sheet.characterName}</p>
+                  <p className="text-xs text-slate-500">{sheet.race} {sheet.className}{sheet.subclass ? ` (${sheet.subclass})` : ''} · Level {player.level} · {sheet.background}</p>
+                  {sheet.alignment && <p className="text-xs text-slate-600">{sheet.alignment}</p>}
+                </div>
+
+                {/* HP / AC / Speed — use runtime HP from PlayRunPlayer */}
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { label: 'HP', value: `${player.currentHP}/${player.maxHP}${player.tempHP > 0 ? `+${player.tempHP}` : ''}` },
+                    { label: 'AC', value: sheet.AC },
+                    { label: 'Speed', value: `${sheet.speed}ft` },
+                  ].map(s => (
+                    <div key={s.label} className="bg-slate-800/60 rounded-xl p-2 text-center">
+                      <p className="text-[10px] text-slate-500 uppercase tracking-widest">{s.label}</p>
+                      <p className="text-sm font-bold text-slate-200">{s.value}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Ability scores */}
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2">Abilities</p>
+                  <div className="grid grid-cols-6 gap-1">
+                    {ABILITY_NAMES.map(ab => (
+                      <div key={ab} className="bg-slate-800/60 rounded-lg p-1.5 text-center">
+                        <p className="text-[9px] text-slate-500 uppercase">{ab}</p>
+                        <p className="text-sm font-bold text-slate-200">{sheet[ab]}</p>
+                        <p className="text-[10px] text-slate-400">{fmtMod(mod(sheet[ab]))}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Saving throws */}
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1">Saving Throws</p>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+                    {ABILITY_NAMES.map(ab => {
+                      const prof = saves[ab] ?? false
+                      const bonus = mod(sheet[ab]) + (prof ? sheet.proficiencyBonus : 0)
+                      return (
+                        <div key={ab} className="flex items-center gap-1.5 text-xs text-slate-400">
+                          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${prof ? 'bg-emerald-400' : 'bg-slate-700'}`} />
+                          <span>{fmtMod(bonus)} {ab}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Skills */}
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1">Skills</p>
+                  <div className="space-y-0.5">
+                    {ALL_SKILLS.map(sk => {
+                      const entry = skills[sk.name] ?? { prof: false, expertise: false }
+                      const abilityScore = sheet[sk.ability as keyof SheetData] as number
+                      const bonus = mod(abilityScore) + (entry.expertise ? sheet.proficiencyBonus * 2 : entry.prof ? sheet.proficiencyBonus : 0)
+                      return (
+                        <div key={sk.name} className="flex items-center gap-1.5 text-xs text-slate-400">
+                          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${entry.expertise ? 'bg-amber-400' : entry.prof ? 'bg-emerald-400' : 'bg-slate-700'}`} />
+                          <span className="w-4 text-[9px] text-slate-600">{sk.ability}</span>
+                          <span className="flex-1">{sk.name}</span>
+                          <span className="text-slate-300">{fmtMod(bonus)}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Spell slots */}
+                {Object.keys(spellSlots).length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1">Spell Slots</p>
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(spellSlots).map(([lvl, slot]) => (
+                        <div key={lvl} className="text-center">
+                          <p className="text-[9px] text-slate-500">Lv{lvl}</p>
+                          <div className="flex gap-0.5 mt-0.5">
+                            {Array.from({ length: slot.max }).map((_, i) => (
+                              <span key={i} className={`w-2 h-2 rounded-full ${i < slot.max - slot.used ? 'bg-violet-400' : 'bg-slate-700'}`} />
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Personality */}
+                {(sheet.personalityTraits || sheet.ideals || sheet.bonds || sheet.flaws) && (
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Personality</p>
+                    {[
+                      { label: 'Traits', val: sheet.personalityTraits },
+                      { label: 'Ideals', val: sheet.ideals },
+                      { label: 'Bonds', val: sheet.bonds },
+                      { label: 'Flaws', val: sheet.flaws },
+                    ].filter(x => x.val).map(x => (
+                      <div key={x.label}>
+                        <p className="text-[9px] text-slate-600 uppercase">{x.label}</p>
+                        <p className="text-xs text-slate-400">{x.val}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          )}
+
+          {/* ── Journal tab ── */}
+          {tab === 'journal' && (
+            loadingJournal ? <p className="text-sm text-slate-500">Loading…</p> : (
+              <div className="space-y-5">
+                {/* Quests */}
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2">Quests</p>
+                  {quests.length === 0 ? (
+                    <p className="text-xs text-slate-600">No quests yet.</p>
+                  ) : quests.map(q => (
+                    <div key={q.id} className="mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                          q.status === 'complete' ? 'bg-emerald-500/20 text-emerald-400' :
+                          q.status === 'failed' ? 'bg-red-500/20 text-red-400' :
+                          'bg-amber-500/20 text-amber-400'}`}>{q.status}</span>
+                        <span className="text-xs font-medium text-slate-300">{q.name}</span>
+                        <span className="text-[9px] text-slate-600">{q.questType}</span>
+                      </div>
+                      {q.description && <p className="text-xs text-slate-500 mt-0.5 ml-4 line-clamp-2">{q.description}</p>}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Explored areas */}
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2">Explored Areas</p>
+                  {exploredAreas.length === 0 ? (
+                    <p className="text-xs text-slate-600">Nowhere explored yet.</p>
+                  ) : (
+                    <ul className="space-y-1">
+                      {exploredAreas.map((a, i) => (
+                        <li key={i} className="text-xs text-slate-400 flex items-center gap-1.5">
+                          <span className="text-emerald-500 text-[10px]">✓</span>{a}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            )
+          )}
+        </div>
+      </div>
     </div>
   )
 }
@@ -244,6 +505,7 @@ export default function PlayPage() {
   const [sending, setSending] = useState(false)
   const [currentUser, setCurrentUser] = useState<string>('')
   const [deathModal, setDeathModal] = useState<{ playerId: number; playerName: string } | null>(null)
+  const [showDrawer, setShowDrawer] = useState(false)
   const logEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -351,6 +613,7 @@ export default function PlayPage() {
   return (
     <div className="flex-1 flex min-h-0 bg-slate-950 overflow-hidden">
       {deathModal && <DeathModal playerName={deathModal.playerName} onChoice={handleDeathChoice} />}
+      {showDrawer && me && <PlayerDrawer slug={slug} player={me} run={run} onClose={() => setShowDrawer(false)} />}
 
       {/* ── Right panel: Party + Combat ───────────────────────────────── */}
       <div className="w-56 shrink-0 border-l border-slate-800/60 flex flex-col min-h-0 hidden lg:flex">
@@ -391,7 +654,13 @@ export default function PlayPage() {
           )}
           <div className="ml-auto flex items-center gap-2">
             {me && (
-              <span className="text-[10px] text-slate-500">{me.characterName} · {me.currentHP}/{me.maxHP} HP</span>
+              <>
+                <span className="text-[10px] text-slate-500 hidden sm:inline">{me.characterName} · {me.currentHP}/{me.maxHP} HP</span>
+                <button onClick={() => setShowDrawer(true)}
+                  className="h-7 px-3 rounded-lg border border-slate-700 text-xs text-slate-400 hover:text-slate-200 hover:border-slate-500 transition-colors">
+                  Character & Journal
+                </button>
+              </>
             )}
           </div>
         </div>
