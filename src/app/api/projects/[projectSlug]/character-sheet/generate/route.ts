@@ -98,7 +98,7 @@ Use the standard array from 5e: assign 15,14,13,12,10,8 to stats based on class.
         : undefined
       const anthropic = new Anthropic({ apiKey, ...(baseURL ? { baseURL } : {}) })
       const resp = await anthropic.messages.create({
-        model: aiModel!,
+        model: provider === 'openclaw' ? 'openclaw' : aiModel!,
         max_tokens: 1500,
         system: systemPrompt,
         messages: [{ role: 'user', content: userMsg }],

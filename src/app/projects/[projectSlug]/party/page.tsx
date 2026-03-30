@@ -39,7 +39,7 @@ export default function PartyPage() {
       if (meRes.ok) {
         const me = await meRes.json()
         setCurrentUser(me.username)
-        setMyMember(data.find(m => m.username === me.username) ?? null)
+        setMyMember(data.find(m => m.username.toLowerCase() === me.username.toLowerCase()) ?? null)
       }
     }
     setLoading(false)
@@ -115,7 +115,7 @@ export default function PartyPage() {
           <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Dungeon Master</h2>
           {dm ? (
             <MemberCard member={dm} isMe={dm.username === currentUser} isDm={isDm} slug={slug}
-              onRoleChange={setRole} />
+              currentUser={currentUser} onRoleChange={setRole} />
           ) : (
             <div className="bg-slate-800/30 border border-dashed border-slate-700/60 rounded-xl p-6 text-center">
               <p className="text-sm text-slate-600">No DM yet</p>
@@ -137,7 +137,7 @@ export default function PartyPage() {
           <div className="space-y-3">
             {players.map(m => (
               <MemberCard key={m.username} member={m} isMe={m.username === currentUser}
-                isDm={isDm} slug={slug} onRoleChange={setRole} />
+                isDm={isDm} slug={slug} currentUser={currentUser} onRoleChange={setRole} />
             ))}
             {players.length === 0 && (
               <p className="text-sm text-slate-600 italic">No players yet. Share an invite link to get people in.</p>
@@ -180,18 +180,20 @@ export default function PartyPage() {
 
 // ─── Member card ──────────────────────────────────────────────────────────────
 
-function MemberCard({ member, isMe, isDm, slug, onRoleChange }: {
+function MemberCard({ member, isMe, isDm, slug, currentUser, onRoleChange }: {
   member: PartyMember
   isMe: boolean
+  currentUser: string | null
   isDm: boolean
   slug: string
   onRoleChange: (username: string, role: 'dm' | 'player') => void
 }) {
+  const actuallyMe = isMe || (!!currentUser && member.username.toLowerCase() === currentUser.toLowerCase())
   const sheet = member.characterSheet
   const hp = sheet ? `${sheet.currentHP}/${sheet.maxHP} HP` : null
 
   return (
-    <div className={`flex items-center gap-4 bg-slate-800/40 rounded-xl p-4 border transition-colors ${isMe ? 'border-emerald-500/20' : 'border-transparent'}`}>
+    <div className={`flex items-center gap-4 bg-slate-800/40 rounded-xl p-4 border transition-colors ${actuallyMe ? 'border-emerald-500/20' : 'border-transparent'}`}>
       {/* Avatar */}
       <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-sm font-bold ${
         member.role === 'dm' ? 'bg-amber-500/20 border border-amber-500/40 text-amber-400' : 'bg-emerald-600/20 border border-emerald-500/30 text-emerald-400'
@@ -203,7 +205,7 @@ function MemberCard({ member, isMe, isDm, slug, onRoleChange }: {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium text-slate-200">@{member.username}</span>
-          {isMe && <span className="text-[10px] text-emerald-500 font-semibold">(you)</span>}
+          {actuallyMe && <span className="text-[10px] text-emerald-500 font-semibold">(you)</span>}
           {member.role === 'dm' && <span className="text-[10px] font-bold text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded">DM</span>}
         </div>
         {sheet ? (
@@ -217,10 +219,16 @@ function MemberCard({ member, isMe, isDm, slug, onRoleChange }: {
 
       {/* Actions */}
       <div className="flex items-center gap-2 shrink-0">
-        {isMe && !sheet && (
+        {actuallyMe && !sheet && (
           <Link href={`/projects/${slug}/sheet`}
             className="px-2.5 py-1 text-xs text-emerald-400 border border-emerald-500/30 rounded-lg hover:bg-emerald-500/10 transition-colors">
             Add Sheet
+          </Link>
+        )}
+        {actuallyMe && sheet && (
+          <Link href={`/projects/${slug}/sheet`}
+            className="px-2.5 py-1 text-xs text-slate-400 border border-slate-700 rounded-lg hover:bg-slate-700/40 transition-colors">
+            Edit Sheet
           </Link>
         )}
         {isDm && !isMe && member.role !== 'dm' && (
