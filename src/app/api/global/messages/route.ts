@@ -189,7 +189,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ message, aiMessage: errMsg })
   }
   const aiModel = settings?.aiModel?.trim()
-  if (!aiModel) {
+  if (!aiModel && provider !== 'openclaw') {
     const errMsg = await prisma.globalMessage.create({
       data: { role: 'assistant', author: 'Daneel', content: 'No AI model configured. Go to Settings and set a model.' },
     })
@@ -232,7 +232,7 @@ export async function POST(request: Request) {
         messages: history,
         systemPrompt,
         apiKey: settings!.aiApiKey,
-        model: aiModel,
+        model: aiModel!,
         tools: GLOBAL_TOOLS,
         onToolCall: (n, i) => handleToolCall(n, i, requestingUser?.username),
       })
@@ -242,7 +242,7 @@ export async function POST(request: Request) {
         messages: history,
         systemPrompt,
         apiKey: settings!.aiApiKey,
-        model: aiModel,
+        model: aiModel!,
         tools: GLOBAL_TOOLS,
         onToolCall: (n, i) => handleToolCall(n, i, requestingUser?.username),
       })

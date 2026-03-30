@@ -31,7 +31,7 @@ export async function POST(request: Request) {
     )
   }
   const aiModel = settings?.aiModel?.trim()
-  if (!aiModel) {
+  if (!aiModel && provider !== 'openclaw') {
     return new Response(
       JSON.stringify({ error: 'No AI model configured. Go to Settings and set a model.' }),
       { status: 400, headers: { 'Content-Type': 'application/json' } }

@@ -2158,7 +2158,7 @@ ${worldList}`
   // ── Call AI ───────────────────────────────────────────────────────────────
 
   const aiModel = settings?.aiModel?.trim()
-  if (!aiModel) {
+  if (!aiModel && provider !== 'openclaw') {
     const errMsg = await prisma.projectMessage.create({
       data: { projectId: project.id, role: 'assistant', author: 'Daneel', content: 'No AI model configured. Go to Settings and set a model.' },
     })
@@ -2178,14 +2178,14 @@ ${worldList}`
     if (provider === 'anthropic') {
       const result = await callAnthropicWithTools({
         messages: aiMessages, systemPrompt, apiKey: settings!.aiApiKey,
-        model: aiModel, tools, onToolCall,
+        model: aiModel!, tools, onToolCall,
       })
       text = result.text
       toolCallsMade = result.toolCalls
     } else if (provider === 'openai') {
       const result = await callOpenAIWithTools({
         messages: aiMessages, systemPrompt, apiKey: settings!.aiApiKey,
-        model: aiModel, tools, onToolCall,
+        model: aiModel!, tools, onToolCall,
       })
       text = result.text
       toolCallsMade = result.toolCalls

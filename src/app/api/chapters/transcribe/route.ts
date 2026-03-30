@@ -13,7 +13,7 @@ export async function POST(request: Request) {
     ? (settings?.openClawApiKey ?? settings?.aiApiKey ?? '')
     : (settings?.aiApiKey ?? '')
 
-  if (!aiModel) return NextResponse.json({ error: 'No AI model configured. Go to Settings.' }, { status: 400 })
+  if (!aiModel && provider !== 'openclaw') return NextResponse.json({ error: 'No AI model configured. Go to Settings.' }, { status: 400 })
   if (!apiKey) return NextResponse.json({ error: 'No API key configured. Go to Settings.' }, { status: 400 })
 
   const formData = await request.formData()
@@ -72,7 +72,7 @@ Rules:
     }
 
     const response = await anthropic.messages.create({
-      model: aiModel,
+      model: aiModel!,
       max_tokens: 8000,
       system: systemPrompt,
       messages: [{ role: 'user', content }],

@@ -456,7 +456,7 @@ export async function POST(request: Request, { params }: { params: { projectSlug
     let finalText = ''
 
     if (!aiModel && provider !== 'openclaw') {
-      await prisma.playRunLog.create({ data: { runId: run.id, type: 'system', content: '(No AI model configured. Go to Settings and set a model.)' } })
+      await prisma.playRunLog.create({ data: { runId: run.id, type: 'system', content: '(No AI model configured. Go to Settings.)' } })
       return NextResponse.json({ ok: true })
     }
 
