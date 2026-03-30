@@ -139,6 +139,20 @@ const CRAWLER_TOOLS: ToolDef[] = [
       required: ['prompt'],
     },
   },
+  {
+    name: 'roll_dice',
+    description: 'Roll dice and get a true random result from the server. ALWAYS call this before any attack (resolve_attack or monster_action) to get the real rolled numbers. Never guess or invent roll results yourself.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        count: { type: 'number', description: 'Number of dice (e.g. 1 for 1d20, 2 for 2d6).' },
+        sides: { type: 'number', description: 'Sides per die (e.g. 20 for d20, 8 for d8, 6 for d6).' },
+        modifier: { type: 'number', description: 'Flat modifier to add to the total (e.g. attack bonus or damage modifier). Omit or use 0 if none.' },
+        purpose: { type: 'string', description: 'Brief label for this roll, e.g. "attack roll", "damage roll", "monster attack".' },
+      },
+      required: ['count', 'sides'],
+    },
+  },
 ]
 
 // ─── Tool handler ─────────────────────────────────────────────────────────────
@@ -297,6 +311,21 @@ async function handleCrawlerTool(name: string, input: Record<string, unknown>, r
     return 'Turn yielded. Awaiting player response.'
   }
 
+  if (name === 'roll_dice') {
+    const count = Math.max(1, Math.floor(Number(input.count ?? 1)))
+    const sides = Math.max(2, Math.floor(Number(input.sides ?? 20)))
+    const modifier = Math.floor(Number(input.modifier ?? 0))
+    const rolls: number[] = []
+    for (let i = 0; i < count; i++) {
+      rolls.push(Math.floor(Math.random() * sides) + 1)
+    }
+    const rawSum = rolls.reduce((a, b) => a + b, 0)
+    const total = rawSum + modifier
+    const rollStr = count > 1 ? `[${rolls.join(', ')}]` : `${rolls[0]}`
+    const label = input.purpose ? ` (${String(input.purpose)})` : ''
+    return `${count}d${sides}${modifier > 0 ? '+' + modifier : modifier < 0 ? modifier : ''}${label}: rolled ${rollStr}${modifier !== 0 ? ` + ${modifier}` : ''} = **${total}**`
+  }
+
   return `Unknown tool: ${name}`
 }
 
@@ -386,7 +415,9 @@ async function buildCrawlerPrompt(project: { id: number; name: string; descripti
     ? quests.map(q => `- **${q.name}** (id: ${q.id}): ${q.description?.slice(0, 80) ?? ''}`).join('\n')
     : 'No active quests.'
 
-  return `You are Daneel, the DM running the campaign "${project.name}" for a group of players.
+  return `You are Daneel, the Dungeon Master running the D&D 5th Edition campaign "${project.name}".
+
+You run the game strictly by D&D 5e rules — action economy, spell slots, conditions, saving throws, skill checks, initiative, death saves, exhaustion, all of it. When a rule applies, apply it correctly. When a player does something that has a mechanical consequence under 5e, handle it mechanically.
 
 Your job: narrate the campaign, respond to player actions, run combat, and guide the story. You have full access to all campaign content — use it faithfully.
 
@@ -414,32 +445,30 @@ These are hard rules. You MUST follow them every single response without excepti
 - Make the decision, call the tools, narrate the result — do not present menus or ask follow-up questions
 - A real DM makes rulings; you make rulings
 
-**YOU MUST ROLL DICE — this is how D&D 5e combat works:**
-Every attack requires you to mentally simulate dice rolls and pass the results to the tools:
+**YOU MUST USE roll_dice BEFORE EVERY ATTACK — NEVER invent or guess roll results:**
+The server generates real random numbers. You must call roll_dice to get them.
 
-Player attacks (resolve_attack):
-1. Roll 1d20: pick a number 1–20 at random. Add the player's attack bonus (shown in Party section under Attacks).
-2. Compare total to the target's AC (shown in Combat section). If total ≥ AC → hit.
-3. If hit: roll the damage dice shown for that attack (e.g. 1d8+2 = roll 1–8, add 2). Pass damage to the tool.
-4. Call resolve_attack with: attackRoll (your d20+bonus total), targetAC, damage (your damage roll), and the other required fields.
+Player attacks (STRICT order):
+1. Call roll_dice(count=1, sides=20, modifier=[player's attack bonus], purpose="attack roll")
+2. Read the total from the result. Compare to target's AC. Hit if total ≥ AC.
+3. If hit: Call roll_dice with the damage dice for that weapon (e.g. longsword → count=1, sides=8, modifier=3; dagger → count=1, sides=4, modifier=2)
+4. Call resolve_attack with: attackRoll=<result from step 1>, targetAC=<target's AC>, damage=<result from step 3>
 
-Monster attacks (monster_action):
-1. Assign the monster a reasonable attack bonus based on type (goblin ≈ +4, giant rat ≈ +3, troll ≈ +7, etc.)
-2. Roll 1d20 + that bonus. Compare to the target player's AC.
-3. If hit: roll reasonable damage for the creature (goblin 1d6+2, giant rat 1d4+1, etc.)
-4. Call monster_action with the rolled values.
+Monster attacks (STRICT order):
+1. Estimate monster attack bonus from name (goblin ≈ +4, giant rat ≈ +3, orc ≈ +5, troll ≈ +7)
+2. Call roll_dice(count=1, sides=20, modifier=[estimated bonus], purpose="monster attack")
+3. If hit (result ≥ player's AC): Call roll_dice for damage (goblin → count=1, sides=6, modifier=2; giant rat → count=1, sides=4, modifier=1)
+4. Call monster_action with the rolled values
 
-Critical hits: a natural 20 on the d20 is a crit — double the damage dice.
-Critical miss: a natural 1 always misses regardless of modifiers.
-
-You are generating random numbers to simulate dice. Do not always roll the same numbers. Vary them realistically — sometimes high, sometimes low, sometimes a miss, sometimes a crit.
+Critical hits: if the raw d20 result (before modifier) was 20 → double the damage dice count.
+Critical miss: if the raw d20 result was 1 → automatic miss regardless of total.
 
 **Combat sequence per player action (strict order):**
-1. Roll dice and call resolve_attack for the player's declared action
-2. For each living monster: roll dice and call monster_action
-3. Check if all monsters are defeated — if yes: call end_combat, award_xp, award_loot, mark_explored
-4. Call narrate ONCE describing what happened this round based on the tool results
-5. Call yield_turn to hand control back to the players
+1. Call roll_dice → call resolve_attack for the player's declared action
+2. For each living monster: call roll_dice → call monster_action
+3. If all monsters defeated: call end_combat, award_xp, award_loot, mark_explored
+4. Call narrate ONCE describing the round based on tool results
+5. Call yield_turn to hand control back to players
 
 ## TOOL CALL BUDGET
 You have a maximum of 15 tool calls per player action. Plan accordingly:
