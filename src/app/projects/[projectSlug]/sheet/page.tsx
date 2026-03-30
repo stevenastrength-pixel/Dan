@@ -185,6 +185,10 @@ export default function CharacterSheetPage() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [activeTab, setActiveTab] = useState<'abilities' | 'combat' | 'spells' | 'equipment' | 'features'>('abilities')
+  const [generateModal, setGenerateModal] = useState(false)
+  const [generatePrompt, setGeneratePrompt] = useState('')
+  const [generating, setGenerating] = useState(false)
+  const [generateError, setGenerateError] = useState('')
 
   // Derived values
   const pb = profBonusForLevel(sheet.level)
@@ -227,6 +231,26 @@ export default function CharacterSheetPage() {
   const upd = <K extends keyof SheetData,>(key: K, value: SheetData[K]) =>
     setSheet(s => ({ ...s, [key]: value }))
 
+  const generateCharacter = async () => {
+    setGenerating(true)
+    setGenerateError('')
+    const res = await fetch(`/api/projects/${slug}/character-sheet/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: generatePrompt }),
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      setGenerateError(data.error ?? 'Generation failed.')
+      setGenerating(false)
+      return
+    }
+    setSheet(s => ({ ...s, ...data }))
+    setGenerateModal(false)
+    setGeneratePrompt('')
+    setGenerating(false)
+  }
+
   const tabs = [
     { id: 'abilities' as const, label: 'Abilities' },
     { id: 'combat' as const, label: 'Combat & Skills' },
@@ -241,6 +265,40 @@ export default function CharacterSheetPage() {
 
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-slate-950 overflow-hidden">
+
+      {/* Auto-generate modal */}
+      {generateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-md p-6">
+            <h2 className="text-sm font-semibold text-slate-200 mb-1">Auto-Generate Character</h2>
+            <p className="text-xs text-slate-500 mb-4">
+              Daneel will create a full character based on this campaign&apos;s setting and documents.
+              Optionally describe what you&apos;re looking for — class, personality, concept, etc.
+            </p>
+            <textarea
+              autoFocus
+              value={generatePrompt}
+              onChange={e => setGeneratePrompt(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) generateCharacter() }}
+              placeholder="e.g. A sneaky halfling rogue with a dark past, or leave blank for a random character"
+              rows={3}
+              className="w-full resize-none bg-slate-800/60 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-violet-500/60 transition-colors"
+            />
+            {generateError && <p className="text-xs text-red-400 mt-2">{generateError}</p>}
+            <div className="flex gap-2 mt-4">
+              <button onClick={generateCharacter} disabled={generating}
+                className="flex-1 py-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm font-medium rounded-xl transition-colors">
+                {generating ? 'Generating…' : '✦ Generate'}
+              </button>
+              <button onClick={() => { setGenerateModal(false); setGenerateError('') }}
+                className="px-4 py-2 border border-slate-700 text-slate-400 hover:text-slate-200 text-sm rounded-xl transition-colors">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="px-6 h-16 border-b border-slate-800/60 shrink-0 flex items-center gap-4">
         <h1 className="text-sm font-semibold text-slate-200">Character Sheet</h1>
@@ -255,6 +313,10 @@ export default function CharacterSheetPage() {
           <span className={`text-xs transition-colors ${saved ? 'text-emerald-400' : 'text-slate-600'}`}>
             {saved ? 'Saved' : ''}
           </span>
+          <button onClick={() => { setGenerateModal(true); setGenerateError('') }}
+            className="px-4 py-1.5 border border-violet-500/40 text-violet-300 bg-violet-500/10 hover:bg-violet-500/20 text-xs font-medium rounded-lg transition-colors">
+            ✦ Auto-Generate
+          </button>
           <button onClick={save} disabled={saving}
             className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium rounded-lg transition-colors disabled:opacity-40">
             {saving ? 'Saving…' : 'Save Sheet'}
