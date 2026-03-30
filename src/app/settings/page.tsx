@@ -351,6 +351,10 @@ export default function SettingsPage() {
                 {form.aiApiKeySet && (
                   <span className="ml-2 text-emerald-400 normal-case font-normal">✓ Key saved</span>
                 )}
+                {form.aiApiKeySet && (
+                  <button type="button" onClick={() => setForm({ ...form, aiApiKey: '', aiApiKeySet: false })}
+                    className="ml-2 text-red-400 hover:text-red-300 normal-case font-normal transition-colors">× Clear</button>
+                )}
               </label>
               <input
                 type="password"
@@ -439,6 +443,10 @@ export default function SettingsPage() {
                   {form.openClawApiKeySet && (
                     <span className="ml-2 text-emerald-400 normal-case font-normal">✓ Key saved</span>
                   )}
+                  {form.openClawApiKeySet && (
+                    <button type="button" onClick={() => setForm({ ...form, openClawApiKey: '', openClawApiKeySet: false })}
+                      className="ml-2 text-red-400 hover:text-red-300 normal-case font-normal transition-colors">× Clear</button>
+                  )}
                 </label>
                 <input
                   type="password"
@@ -469,6 +477,10 @@ export default function SettingsPage() {
               Replicate API Key
               {form.replicateApiKeySet && (
                 <span className="ml-2 text-emerald-400 normal-case font-normal">✓ Key saved</span>
+              )}
+              {form.replicateApiKeySet && (
+                <button type="button" onClick={() => setForm({ ...form, replicateApiKey: '', replicateApiKeySet: false })}
+                  className="ml-2 text-red-400 hover:text-red-300 normal-case font-normal transition-colors">× Clear</button>
               )}
             </label>
             <input

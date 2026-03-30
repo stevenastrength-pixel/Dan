@@ -44,21 +44,19 @@ export async function PUT(request: Request) {
   const body = await request.json()
   const existing = await prisma.settings.findFirst()
 
-  // Only update API keys if a real (non-masked) value was submitted
-  const newApiKey =
-    body.aiApiKey && !isMasked(body.aiApiKey)
-      ? body.aiApiKey
-      : existing?.aiApiKey ?? ''
+  // Preserve existing key only if the submitted value is masked (unchanged placeholder).
+  // An empty string means the user cleared it; a new non-masked value replaces it.
+  const newApiKey = isMasked(body.aiApiKey ?? '')
+    ? existing?.aiApiKey ?? ''
+    : (body.aiApiKey ?? '')
 
-  const newOpenClawApiKey =
-    body.openClawApiKey && !isMasked(body.openClawApiKey)
-      ? body.openClawApiKey
-      : existing?.openClawApiKey ?? ''
+  const newOpenClawApiKey = isMasked(body.openClawApiKey ?? '')
+    ? existing?.openClawApiKey ?? ''
+    : (body.openClawApiKey ?? '')
 
-  const newReplicateApiKey =
-    body.replicateApiKey && !isMasked(body.replicateApiKey)
-      ? body.replicateApiKey
-      : (existing as any)?.replicateApiKey ?? ''
+  const newReplicateApiKey = isMasked(body.replicateApiKey ?? '')
+    ? (existing as any)?.replicateApiKey ?? ''
+    : (body.replicateApiKey ?? '')
 
   const settings = await (prisma as any).settings.upsert({
     where: { id: 1 },
