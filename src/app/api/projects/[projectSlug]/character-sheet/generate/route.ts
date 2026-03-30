@@ -80,7 +80,39 @@ Use the standard array from 5e: assign 15,14,13,12,10,8 to stats based on class.
   try {
     let content = ''
 
-    if (provider === 'openai') {
+    if (provider === 'openclaw') {
+      // OpenClaw uses the OpenAI Responses API format — call it directly
+      const baseUrl = (settings?.openClawBaseUrl ?? '').replace(/\/$/, '')
+      const responsesUrl = baseUrl.endsWith('/v1/responses') ? baseUrl
+        : baseUrl.endsWith('/v1') ? baseUrl + '/responses'
+        : baseUrl + '/v1/responses'
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (settings?.openClawApiKey) headers['Authorization'] = `Bearer ${settings.openClawApiKey}`
+      const res = await fetch(responsesUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          model: 'openclaw',
+          instructions: systemPrompt,
+          input: userMsg,
+          max_output_tokens: 1500,
+        }),
+      })
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+      const data = await res.json()
+      // Extract text from OpenClaw response (same shape as postOpenClawResponses)
+      const output = Array.isArray(data.output) ? data.output : []
+      for (const item of output) {
+        const c = Array.isArray(item.content) ? item.content : []
+        for (const block of c) {
+          if (block.type === 'output_text' && block.text) { content = block.text; break }
+          if (block.type === 'text' && block.text) { content = block.text; break }
+        }
+        if (content) break
+        if (typeof item.content === 'string' && item.content) { content = item.content; break }
+      }
+      if (!content && data.output_text) content = data.output_text
+    } else if (provider === 'openai') {
       const openai = new OpenAI({ apiKey: settings!.aiApiKey })
       const resp = await openai.chat.completions.create({
         model: aiModel!,
@@ -89,16 +121,10 @@ Use the standard array from 5e: assign 15,14,13,12,10,8 to stats based on class.
       })
       content = resp.choices[0]?.message?.content ?? ''
     } else {
-      // anthropic or openclaw — openclaw uses its own key + baseURL
-      const apiKey = provider === 'openclaw'
-        ? (settings?.openClawApiKey ?? settings?.aiApiKey ?? '')
-        : (settings?.aiApiKey ?? '')
-      const baseURL = provider === 'openclaw' && settings?.openClawBaseUrl
-        ? settings.openClawBaseUrl.replace(/\/$/, '') + '/v1'
-        : undefined
-      const anthropic = new Anthropic({ apiKey, ...(baseURL ? { baseURL } : {}) })
+      // anthropic
+      const anthropic = new Anthropic({ apiKey: settings!.aiApiKey ?? '' })
       const resp = await anthropic.messages.create({
-        model: provider === 'openclaw' ? 'openclaw' : aiModel!,
+        model: aiModel!,
         max_tokens: 1500,
         system: systemPrompt,
         messages: [{ role: 'user', content: userMsg }],
