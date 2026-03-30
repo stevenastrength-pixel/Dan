@@ -336,7 +336,7 @@ async function buildCrawlerPrompt(project: { id: number; name: string; descripti
   type Doc = { title: string; content: string }
   type Quest = { id: number; name: string; description: string | null }
   type Player = { characterName: string; username: string; currentHP: number; maxHP: number; tempHP: number; level: number; xp: number; deathState: string }
-  type Combatant = { id: number; name: string; currentHP: number; maxHP: number; AC: number; initiative: number }
+  type Combatant = { id: number; name: string; currentHP: number; maxHP: number; AC: number; initiative: number; isDefeated: boolean }
   type Explored = { keyedAreaId: number | null }
   type CharSheet = { username: string; attacks: string; inventory: string }
 
