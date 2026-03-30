@@ -407,8 +407,14 @@ These are hard rules. You MUST follow them every single response without excepti
 - If XP or loot should be awarded → call award_xp / award_loot. Do NOT mention rewards in prose.
 - NEVER free-narrate a combat exchange as a substitute for tool calls. Tools determine outcomes; narration describes them after.
 
+**Never ask for clarification — always assume and resolve:**
+- If a player says "I attack!" without specifying a target, assume they attack the nearest/most threatening enemy
+- If a player doesn't specify a weapon, use their primary attack from their character sheet
+- Make the decision, call the tools, narrate the result — do not present menus or ask follow-up questions
+- A real DM makes rulings; you make rulings
+
 **Combat sequence per player action (strict order):**
-1. Call resolve_attack for the player's declared action
+1. Call resolve_attack for the player's declared action (assume target if unspecified)
 2. Call monster_action for each monster's retaliation
 3. Check if combat is over — if yes, call end_combat, award_xp, award_loot, mark_explored
 4. Call narrate ONCE with a summary of the round
@@ -536,9 +542,13 @@ export async function POST(request: Request, { params }: { params: { projectSlug
       finalText = result.text
     }
 
-    // Log Daneel's final text response if present
-    if (finalText?.trim()) {
-      await prisma.playRunLog.create({ data: { runId: run.id, type: 'narration', content: finalText.trim(), speakerName: 'Daneel' } })
+    // Log Daneel's final text response if present (strip known provider noise)
+    const cleanText = (finalText ?? '')
+      .replace(/no response from openclaw\.?/gi, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+    if (cleanText) {
+      await prisma.playRunLog.create({ data: { runId: run.id, type: 'narration', content: cleanText, speakerName: 'Daneel' } })
     }
   } catch (err) {
     console.error('[Crawler AI error]', err)
