@@ -446,8 +446,20 @@ export async function callAnthropicWithTools(params: {
     currentMessages = [...currentMessages, { role: 'user', content: toolResults }]
   }
 
-  console.warn('[tool loop] limit reached after 15 iterations')
-  return { text: '', toolCalls }
+  console.warn('[tool loop] limit reached after 15 iterations — requesting wrap-up')
+  try {
+    const wrapUp = await client.messages.create({
+      model,
+      max_tokens: 400,
+      system: systemPrompt + '\n\nYou have used the maximum number of tool calls for this turn. Do NOT call any more tools. Write a brief closing narration to resolve the current situation and hand control back to the players.',
+      messages: currentMessages,
+    })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const wrapText = wrapUp.content.filter((b: any) => b.type === 'text').map((b: any) => b.text as string).join('')
+    return { text: wrapText, toolCalls }
+  } catch {
+    return { text: '', toolCalls }
+  }
 }
 
 // ─── OpenAI agentic loop (with tools) ────────────────────────────────────────
@@ -515,8 +527,19 @@ export async function callOpenAIWithTools(params: {
     currentMessages = [...currentMessages, ...toolResultMessages]
   }
 
-  console.warn('[tool loop] limit reached after 15 iterations')
-  return { text: '', toolCalls }
+  console.warn('[tool loop openai] limit reached after 15 iterations — requesting wrap-up')
+  try {
+    const wrapUp = await client.chat.completions.create({
+      model,
+      messages: [
+        ...currentMessages,
+        { role: 'user', content: 'You have used the maximum number of tool calls for this turn. Do NOT call any more tools. Write a brief closing narration to resolve the current situation and hand control back to the players.' },
+      ],
+    })
+    return { text: wrapUp.choices[0]?.message?.content ?? '', toolCalls }
+  } catch {
+    return { text: '', toolCalls }
+  }
 }
 
 // ─── OpenClaw agentic loop (with tools) ──────────────────────────────────────
@@ -616,8 +639,28 @@ export async function callOpenClawWithTools(params: {
     input = toolResults
   }
 
-  console.warn('[tool loop] limit reached after 15 iterations')
-  return { text: '', toolCalls }
+  console.warn('[tool loop openclaw] limit reached after 15 iterations — requesting wrap-up')
+  try {
+    const wrapUp = await postOpenClawResponses({
+      openClawBaseUrl,
+      openClawApiKey,
+      openClawAgentId,
+      sessionKey: context.sessionKey,
+      body: {
+        model: 'openclaw',
+        instructions: systemPrompt + '\n\nYou have used the maximum number of tool calls for this turn. Do NOT call any more tools. Write a brief closing narration to resolve the current situation and hand control back to the players.',
+        input: [
+          ...input,
+          { type: 'message', role: 'user', content: 'Wrap up the current situation with a brief narration — no more tool calls.' },
+        ],
+        max_output_tokens: 400,
+      },
+    })
+    const wrapText = extractOpenClawText(wrapUp)
+    return { text: pendingAssistantText ? `${pendingAssistantText}\n\n${wrapText}` : wrapText, toolCalls }
+  } catch {
+    return { text: pendingAssistantText, toolCalls }
+  }
 }
 
 // ─── System prompt builder (shared) ──────────────────────────────────────────
