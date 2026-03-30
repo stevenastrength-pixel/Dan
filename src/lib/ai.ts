@@ -582,7 +582,6 @@ export async function callOpenClawWithTools(params: {
   }))
 
   let input: OpenClawInputItem[] = toOpenClawInputMessages(messages)
-  let pendingAssistantText = ''
 
   for (let i = 0; i < 15; i++) {
     const data = await postOpenClawResponses({
@@ -600,19 +599,12 @@ export async function callOpenClawWithTools(params: {
     })
 
     const requestedToolCalls = extractOpenClawFunctionCalls(data)
-    const text = extractOpenClawText(data)
-
-    if (text) {
-      pendingAssistantText = pendingAssistantText
-        ? `${pendingAssistantText}\n\n${text}`
-        : text
-    }
 
     if (requestedToolCalls.length === 0) {
-      if (pendingAssistantText) {
-        return { text: pendingAssistantText, toolCalls }
-      }
-      throw new Error('OpenClaw returned neither assistant text nor function calls.')
+      // Final response — only use text from here, not from intermediate tool-call iterations
+      const text = extractOpenClawText(data)
+      if (text) return { text, toolCalls }
+      return { text: '', toolCalls }
     }
 
     const toolResults: OpenClawFunctionCallOutputItem[] = []
@@ -657,9 +649,9 @@ export async function callOpenClawWithTools(params: {
       },
     })
     const wrapText = extractOpenClawText(wrapUp)
-    return { text: pendingAssistantText ? `${pendingAssistantText}\n\n${wrapText}` : wrapText, toolCalls }
+    return { text: wrapText, toolCalls }
   } catch {
-    return { text: pendingAssistantText, toolCalls }
+    return { text: '', toolCalls }
   }
 }
 
