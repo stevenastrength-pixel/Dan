@@ -130,11 +130,11 @@ const CRAWLER_TOOLS: ToolDef[] = [
   },
   {
     name: 'yield_turn',
-    description: 'Pause and hand control back to the players when you have used most of your tool budget or when you need player input to continue (e.g. mid-combat after resolving a round). Players will see your prompt and respond to continue. Use this instead of running out of tool calls.',
+    description: 'Hand control back to the players after resolving a round or when you need their next action. Call this AFTER narrate, not before. The prompt must be a single short sentence — never a menu, never a list of options.',
     input_schema: {
       type: 'object',
       properties: {
-        prompt: { type: 'string', description: 'Short message shown to players — e.g. "The goblin staggers — what do you do?" or "Round 2 begins. Declare your actions."' },
+        prompt: { type: 'string', description: 'ONE sentence handed to players, e.g. "The goblin staggers — what do you do?" or "Round 2 — declare your action." Never list options.' },
       },
       required: ['prompt'],
     },
@@ -306,7 +306,10 @@ async function handleCrawlerTool(name: string, input: Record<string, unknown>, r
   }
 
   if (name === 'yield_turn') {
-    const prompt = String(input.prompt ?? 'What do you do?')
+    // Enforce a single-sentence prompt — strip anything after the first newline or bullet
+    let prompt = String(input.prompt ?? 'What do you do?')
+    prompt = prompt.split('\n')[0].split(' - ')[0].trim()
+    if (!prompt) prompt = 'What do you do?'
     await prisma.playRunLog.create({ data: { runId, type: 'system', content: prompt, speakerName: 'Daneel' } })
     return 'Turn yielded. Awaiting player response.'
   }
@@ -562,8 +565,16 @@ export async function POST(request: Request, { params }: { params: { projectSlug
     }
   }
   // Ensure final message is the player's action
+  // During combat, append a silent execution directive so the model runs tools instead of presenting options
+  const playerActionLine = `${player?.characterName ?? user.username}: ${playerText}`
+  const combatDirective = run.inCombat
+    ? `\n\n[DM INSTRUCTION — DO NOT SHOW TO PLAYERS: Combat is active. Execute the full combat round RIGHT NOW using tools in this exact order: (1) roll_dice for the player's attack, (2) resolve_attack, (3) roll_dice + monster_action for each living enemy, (4) narrate once with the outcomes, (5) yield_turn with a one-sentence prompt. Do NOT present options. Do NOT ask what they want to do. Execute immediately.]`
+    : ''
   if (aiMessages.length === 0 || aiMessages[aiMessages.length - 1].role !== 'user') {
-    aiMessages.push({ role: 'user', content: `${player?.characterName ?? user.username}: ${playerText}` })
+    aiMessages.push({ role: 'user', content: playerActionLine + combatDirective })
+  } else {
+    // Replace the last user message with the combat-annotated version
+    aiMessages[aiMessages.length - 1] = { role: 'user', content: playerActionLine + combatDirective }
   }
 
   const provider = (settings?.aiProvider ?? 'anthropic') as 'anthropic' | 'openai' | 'openclaw'
