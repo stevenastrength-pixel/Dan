@@ -95,7 +95,7 @@ Use the standard array from 5e: assign 15,14,13,12,10,8 to stats based on class.
           model: 'openclaw',
           instructions: systemPrompt,
           input: userMsg,
-          max_output_tokens: 1500,
+          max_output_tokens: 4000,
         }),
       })
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
@@ -125,7 +125,7 @@ Use the standard array from 5e: assign 15,14,13,12,10,8 to stats based on class.
       const anthropic = new Anthropic({ apiKey: settings!.aiApiKey ?? '' })
       const resp = await anthropic.messages.create({
         model: aiModel!,
-        max_tokens: 1500,
+        max_tokens: 4000,
         system: systemPrompt,
         messages: [{ role: 'user', content: userMsg }],
       })
@@ -138,6 +138,8 @@ Use the standard array from 5e: assign 15,14,13,12,10,8 to stats based on class.
     const jsonEnd = content.lastIndexOf('}')
     if (jsonStart === -1 || jsonEnd === -1) throw new Error(`No JSON object in response: ${content.slice(0, 200)}`)
     content = content.slice(jsonStart, jsonEnd + 1)
+    // Sanitize trailing commas before ] or } (common AI mistake)
+    content = content.replace(/,(\s*[}\]])/g, '$1')
     const parsed = JSON.parse(content)
 
     // Ensure required fields have sane defaults
