@@ -396,17 +396,33 @@ export async function POST(request: Request, { params }: { params: { projectSlug
 
   const body = await request.json()
   const playerText: string = body.text ?? ''
+  const partyOnly: boolean = body.partyOnly === true
 
-  // Log player action
-  const player = await prisma.playRunPlayer.findFirst({ where: { runId: run.id, username: user.username } })
-  await prisma.playRunLog.create({
+  // Log player message
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const player = await (prisma as any).playRunPlayer.findFirst({ where: { runId: run.id, username: user.username } }) as { id: number; characterName: string } | null
+  await (prisma as any).playRunLog.create({
     data: {
       runId: run.id,
-      type: 'system',
+      type: partyOnly ? 'dialogue' : 'system',
       content: playerText,
       speakerName: player?.characterName ?? user.username,
     },
   })
+
+  // Party-only: skip AI, just return updated run
+  if (partyOnly) {
+    const updated = await (prisma as any).playRun.findUnique({
+      where: { id: run.id },
+      include: {
+        players: true,
+        combatants: { orderBy: [{ sortOrder: 'asc' }, { initiative: 'desc' }] },
+        log: { orderBy: { createdAt: 'asc' }, take: 100 },
+        explored: true,
+      },
+    })
+    return NextResponse.json(updated)
+  }
 
   // Build context and recent log for AI
   type LogRow = { id: number; type: string; content: string; speakerName: string; createdAt: Date }

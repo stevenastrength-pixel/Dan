@@ -506,6 +506,7 @@ export default function PlayPage() {
   const [currentUser, setCurrentUser] = useState<string>('')
   const [deathModal, setDeathModal] = useState<{ playerId: number; playerName: string } | null>(null)
   const [showDrawer, setShowDrawer] = useState(false)
+  const [talkToDaneel, setTalkToDaneel] = useState(true)
   const logEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -549,27 +550,45 @@ export default function PlayPage() {
     setInput('')
     setSending(true)
 
-    // Optimistic: add player message to log immediately
+    const speakerName = run?.players.find(p => p.username === currentUser)?.characterName ?? currentUser
+
+    // Optimistic: add message to log immediately
     const tempEntry: LogEntry = {
       id: Date.now(),
-      type: 'system',
+      type: talkToDaneel ? 'system' : 'dialogue',
       content: text,
-      speakerName: run?.players.find(p => p.username === currentUser)?.characterName ?? currentUser,
+      speakerName,
       createdAt: new Date().toISOString(),
     }
     setRun(prev => prev ? { ...prev, log: [...prev.log, tempEntry] } : prev)
 
-    try {
-      const res = await fetch(`/api/projects/${slug}/play-run/action`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-      })
-      const resText = await res.text()
-      if (res.ok && resText) {
-        try { setRun(JSON.parse(resText)) } catch {}
-      }
-    } catch {}
+    if (talkToDaneel) {
+      // Send to Daneel — full AI DM loop
+      try {
+        const res = await fetch(`/api/projects/${slug}/play-run/action`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text }),
+        })
+        const resText = await res.text()
+        if (res.ok && resText) {
+          try { setRun(JSON.parse(resText)) } catch {}
+        }
+      } catch {}
+    } else {
+      // Party chat only — log the message without calling Daneel
+      try {
+        const res = await fetch(`/api/projects/${slug}/play-run/action`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, partyOnly: true }),
+        })
+        const resText = await res.text()
+        if (res.ok && resText) {
+          try { setRun(JSON.parse(resText)) } catch {}
+        }
+      } catch {}
+    }
     setSending(false)
     inputRef.current?.focus()
   }
@@ -701,17 +720,25 @@ export default function PlayPage() {
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={run.inCombat ? 'Declare your action…' : 'What do you do?'}
+              placeholder={talkToDaneel ? (run.inCombat ? 'Declare your action…' : 'What do you do?') : 'Say something to the party…'}
               rows={2}
-              className="flex-1 resize-none bg-slate-800/60 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-violet-500/60 transition-colors"
+              className={`flex-1 resize-none border rounded-xl px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:outline-none transition-colors bg-slate-800/60 ${talkToDaneel ? 'border-slate-700 focus:border-violet-500/60' : 'border-slate-700 focus:border-amber-500/60'}`}
               disabled={sending}
             />
             <button onClick={sendAction} disabled={sending || !input.trim()}
-              className="h-10 px-4 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm font-medium rounded-xl transition-colors">
+              className={`h-10 px-4 disabled:opacity-40 text-white text-sm font-medium rounded-xl transition-colors ${talkToDaneel ? 'bg-violet-600 hover:bg-violet-500' : 'bg-amber-600 hover:bg-amber-500'}`}>
               →
             </button>
           </div>
-          <p className="text-[10px] text-slate-700 mt-1">Enter to send · Shift+Enter for new line</p>
+          <div className="flex items-center justify-between mt-2">
+            <p className="text-[10px] text-slate-700">Enter to send · Shift+Enter for new line</p>
+            {/* Daneel / Party toggle */}
+            <button onClick={() => setTalkToDaneel(v => !v)}
+              className={`flex items-center gap-1.5 h-6 px-2 rounded-full border text-[10px] font-semibold transition-colors ${talkToDaneel ? 'border-violet-500/50 bg-violet-500/10 text-violet-300' : 'border-amber-600/40 bg-amber-500/10 text-amber-400'}`}>
+              <span className={`w-3 h-3 rounded-full transition-colors ${talkToDaneel ? 'bg-violet-400' : 'bg-amber-400'}`} />
+              {talkToDaneel ? 'Daneel' : 'Party only'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
