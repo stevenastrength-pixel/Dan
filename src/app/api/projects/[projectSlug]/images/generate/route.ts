@@ -52,7 +52,7 @@ ${contextLines.length > 0 ? `\nWorld context:\n${contextLines.join('\n')}` : ''}
       const Anthropic = (await import('@anthropic-ai/sdk')).default
       const client = new Anthropic({ apiKey })
       const resp = await client.messages.create({
-        model: settings?.aiModel || 'claude-haiku-4-5-20251001',
+        model: settings?.aiModel || 'claude-sonnet-4-6',
         max_tokens: 300,
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],

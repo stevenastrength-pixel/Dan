@@ -81,7 +81,7 @@ Use the standard array from 5e: assign 15,14,13,12,10,8 to stats based on class.
     if (provider === 'openai') {
       const openai = new OpenAI({ apiKey: settings!.aiApiKey })
       const resp = await openai.chat.completions.create({
-        model: settings?.aiModel || 'gpt-4o-mini',
+        model: settings?.aiModel || 'gpt-4o',
         messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMsg }],
         temperature: 0.9,
       })
@@ -96,7 +96,7 @@ Use the standard array from 5e: assign 15,14,13,12,10,8 to stats based on class.
         : undefined
       const anthropic = new Anthropic({ apiKey, ...(baseURL ? { baseURL } : {}) })
       const resp = await anthropic.messages.create({
-        model: settings?.aiModel || 'claude-haiku-4-5-20251001',
+        model: settings?.aiModel || 'claude-sonnet-4-6',
         max_tokens: 1500,
         system: systemPrompt,
         messages: [{ role: 'user', content: userMsg }],
