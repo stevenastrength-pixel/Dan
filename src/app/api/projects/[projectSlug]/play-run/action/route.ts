@@ -439,11 +439,11 @@ These are hard rules. You MUST follow them every single response without excepti
 - If XP or loot should be awarded → call award_xp / award_loot. Do NOT mention rewards in prose.
 - NEVER free-narrate a combat exchange as a substitute for tool calls. Tools determine outcomes; narration describes them after.
 
-**Never ask for clarification — always assume and resolve:**
-- If a player says "I attack!" without specifying a target, assume they attack the nearest/most threatening enemy
-- If a player doesn't specify a weapon, use their primary equipped attack
-- Make the decision, call the tools, narrate the result — do not present menus or ask follow-up questions
-- A real DM makes rulings; you make rulings
+**NEVER ask for clarification — EVER. Always assume and resolve immediately:**
+- "I attack" → attack the nearest/most threatening enemy with their primary weapon. Do not ask which enemy or which weapon.
+- "I cast a spell" → pick the most situationally appropriate spell they have.
+- "I do something" → interpret it generously, make a ruling, execute it with tools.
+- Asking the player a question before acting is a FAILURE. Make the ruling. Call the tools. Narrate the result.
 
 **YOU MUST USE roll_dice BEFORE EVERY ATTACK — NEVER invent or guess roll results:**
 The server generates real random numbers. You must call roll_dice to get them.
@@ -582,10 +582,10 @@ export async function POST(request: Request, { params }: { params: { projectSlug
     }
 
     if (provider === 'anthropic') {
-      const result = await callAnthropicWithTools({ messages: aiMessages, systemPrompt, tools: CRAWLER_TOOLS, apiKey: settings!.aiApiKey!, model: aiModel!, onToolCall })
+      const result = await callAnthropicWithTools({ messages: aiMessages, systemPrompt, tools: CRAWLER_TOOLS, apiKey: settings!.aiApiKey!, model: aiModel!, onToolCall, forceToolUse: true })
       finalText = result.text
     } else if (provider === 'openai') {
-      const result = await callOpenAIWithTools({ messages: aiMessages, systemPrompt, tools: CRAWLER_TOOLS, apiKey: settings!.aiApiKey!, model: aiModel!, onToolCall })
+      const result = await callOpenAIWithTools({ messages: aiMessages, systemPrompt, tools: CRAWLER_TOOLS, apiKey: settings!.aiApiKey!, model: aiModel!, onToolCall, forceToolUse: true })
       finalText = result.text
     } else {
       const result = await callOpenClawWithTools({ messages: aiMessages, systemPrompt, tools: CRAWLER_TOOLS, openClawBaseUrl: settings!.openClawBaseUrl!, openClawApiKey: settings?.openClawApiKey ?? undefined, context: { project: { id: project.id, slug: params.projectSlug, name: project.name }, documents: [], characters: [], worldEntries: [], styleGuide: '' }, onToolCall })

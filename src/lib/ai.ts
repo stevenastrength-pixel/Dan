@@ -398,8 +398,9 @@ export async function callAnthropicWithTools(params: {
   model: string
   tools: ToolDef[]
   onToolCall: (name: string, input: Record<string, unknown>) => Promise<string>
+  forceToolUse?: boolean
 }): Promise<{ text: string; toolCalls: ToolCall[] }> {
-  const { messages, systemPrompt, apiKey, model, tools, onToolCall } = params
+  const { messages, systemPrompt, apiKey, model, tools, onToolCall, forceToolUse } = params
   const Anthropic = (await import('@anthropic-ai/sdk')).default
   const client = new Anthropic({ apiKey })
 
@@ -418,6 +419,7 @@ export async function callAnthropicWithTools(params: {
         description: t.description,
         input_schema: t.input_schema,
       })),
+      tool_choice: (forceToolUse && i === 0) ? { type: 'any' } : { type: 'auto' },
       messages: currentMessages,
     })
 
@@ -471,8 +473,9 @@ export async function callOpenAIWithTools(params: {
   model: string
   tools: ToolDef[]
   onToolCall: (name: string, input: Record<string, unknown>) => Promise<string>
+  forceToolUse?: boolean
 }): Promise<{ text: string; toolCalls: ToolCall[] }> {
-  const { messages, systemPrompt, apiKey, model, tools, onToolCall } = params
+  const { messages, systemPrompt, apiKey, model, tools, onToolCall, forceToolUse } = params
   const OpenAI = (await import('openai')).default
   const client = new OpenAI({ apiKey })
 
@@ -498,6 +501,7 @@ export async function callOpenAIWithTools(params: {
     const response = await client.chat.completions.create({
       model,
       tools: openAITools,
+      tool_choice: (forceToolUse && i === 0) ? 'required' : 'auto',
       messages: currentMessages,
     })
 
