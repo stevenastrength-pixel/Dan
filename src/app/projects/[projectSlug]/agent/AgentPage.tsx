@@ -278,9 +278,14 @@ function GallerySection({ label, projectSlug, imageType }: {
   const [open, setOpen] = useState(true)
   const [images, setImages] = useState<ProjectImage[]>([])
   const [uploading, setUploading] = useState(false)
+  const [generating, setGenerating] = useState(false)
+  const [generatePrompt, setGeneratePrompt] = useState('')
+  const [generateOpen, setGenerateOpen] = useState(false)
+  const [generateError, setGenerateError] = useState('')
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null)
   const [mounted, setMounted] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const promptInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { setMounted(true) }, [])
 
@@ -322,6 +327,32 @@ function GallerySection({ label, projectSlug, imageType }: {
       if (lightboxIdx === idx) setLightboxIdx(null)
       else if (lightboxIdx > idx) setLightboxIdx(lightboxIdx - 1)
     }
+  }
+
+  const generate = async () => {
+    const prompt = generatePrompt.trim()
+    if (!prompt) return
+    setGenerating(true)
+    setGenerateError('')
+    try {
+      const res = await fetch(`/api/projects/${projectSlug}/images/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, imageType, title: prompt.slice(0, 60) }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Generation failed.' }))
+        setGenerateError(err.error ?? 'Generation failed.')
+      } else {
+        const img = await res.json()
+        setImages(prev => [...prev, img])
+        setGeneratePrompt('')
+        setGenerateOpen(false)
+      }
+    } catch {
+      setGenerateError('Network error.')
+    }
+    setGenerating(false)
   }
 
   const lightbox = lightboxIdx !== null && mounted && typeof document !== 'undefined' ? createPortal(
@@ -373,14 +404,20 @@ function GallerySection({ label, projectSlug, imageType }: {
           <span>{open ? '▼' : '▶'}</span>{label}
         </button>
         {open && (
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors font-medium disabled:opacity-40"
-            title="Upload image"
-          >
-            {uploading ? '…' : '+'}
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => { setGenerateOpen(v => !v); setGenerateError('') }}
+              disabled={generating}
+              className="text-xs text-violet-400 hover:text-violet-300 transition-colors font-medium disabled:opacity-40"
+              title="Generate with AI"
+            >✦</button>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors font-medium disabled:opacity-40"
+              title="Upload image"
+            >+</button>
+          </div>
         )}
       </div>
 
@@ -397,11 +434,39 @@ function GallerySection({ label, projectSlug, imageType }: {
 
       {open && (
         <div className="px-2 pb-2">
-          {images.length === 0 && !uploading && (
-            <p className="text-[10px] text-slate-600 px-1 pb-1">No images yet — click + to upload</p>
+          {generateOpen && (
+            <div className="mb-2 space-y-1">
+              <input
+                ref={promptInputRef}
+                autoFocus
+                value={generatePrompt}
+                onChange={e => setGeneratePrompt(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') generate(); if (e.key === 'Escape') { setGenerateOpen(false); setGenerateError('') } }}
+                placeholder="Describe the image…"
+                disabled={generating}
+                className="w-full bg-slate-800 border border-violet-500/30 rounded px-2 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-1 focus:ring-violet-500/50 disabled:opacity-50"
+              />
+              {generateError && <p className="text-[10px] text-red-400 px-1">{generateError}</p>}
+              <div className="flex gap-1">
+                <button
+                  onClick={generate}
+                  disabled={generating || !generatePrompt.trim()}
+                  className="flex-1 py-1 rounded bg-violet-600/20 border border-violet-500/30 text-[10px] text-violet-300 hover:bg-violet-600/30 disabled:opacity-40 transition-colors"
+                >
+                  {generating ? 'Generating…' : '✦ Generate'}
+                </button>
+                <button
+                  onClick={() => { setGenerateOpen(false); setGenerateError(''); setGeneratePrompt('') }}
+                  className="px-2 py-1 text-[10px] text-slate-600 hover:text-slate-400 transition-colors"
+                >✕</button>
+              </div>
+            </div>
           )}
-          {uploading && (
-            <p className="text-[10px] text-slate-500 px-1 pb-1 animate-pulse">Uploading…</p>
+          {images.length === 0 && !uploading && !generating && !generateOpen && (
+            <p className="text-[10px] text-slate-600 px-1 pb-1">No images yet — ✦ generate or + upload</p>
+          )}
+          {(uploading || generating) && (
+            <p className="text-[10px] text-slate-500 px-1 pb-1 animate-pulse">{generating ? 'Generating…' : 'Uploading…'}</p>
           )}
           <div className="grid grid-cols-2 gap-1.5">
             {images.map((img, idx) => (
@@ -698,6 +763,12 @@ function ChapterEditor({ chapter, username, onSaved, onBack }: {
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<string | null>(null)
   const dirty = title !== chapter.title || content !== (chapter.content ?? '')
+
+  // Sync content when updated externally (e.g. after file transcription)
+  useEffect(() => {
+    setContent(chapter.content ?? '')
+    setTitle(chapter.title)
+  }, [chapter.updatedAt]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = async () => {
     setSaving(true)
@@ -1763,11 +1834,14 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
     if (!content) return
 
     // Save transcribed content to the chapter
-    await fetch(`/api/chapters/${chapter.id}`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content }),
+    const putRes = await fetch(`/api/chapters/${chapter.id}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: chapter.title, content, savedBy: 'Transcription' }),
     })
-    await fetchChapters()
+    if (!putRes.ok) { showToast('Failed to save transcription.'); return }
+    const savedChapter = await putRes.json()
+    // Update chapters state directly with the returned chapter so the editor remounts immediately
+    setChapters(prev => prev.map(c => c.id === savedChapter.id ? savedChapter : c))
     showToast('Transcription complete.')
   }
 
@@ -2065,7 +2139,7 @@ export default function AgentPage({ project }: { project: ProjectInfo }) {
             onBack={() => { setView({ type: 'console' }); if (window.innerWidth >= 1024) setDocSidebarOpen(true) }} />
         )}
         {view.type === 'chapter' && selectedChapter && (
-          <ChapterEditor key={selectedChapter.id} chapter={selectedChapter} username={username ?? 'Anonymous'}
+          <ChapterEditor key={selectedChapter.id + ':' + selectedChapter.updatedAt} chapter={selectedChapter} username={username ?? 'Anonymous'}
             onSaved={updated => { setChapters(prev => prev.map(c => c.id === updated.id ? updated : c)); showToast('Chapter saved.') }}
             onBack={() => { setView({ type: 'console' }); if (window.innerWidth >= 1024) setDocSidebarOpen(true) }} />
         )}

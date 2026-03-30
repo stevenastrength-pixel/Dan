@@ -14,6 +14,8 @@ type AppSettings = {
   openClawApiKeySet: boolean
   openClawAgentId: string
   contextFiles: string // JSON array of file paths
+  replicateApiKey: string
+  replicateApiKeySet: boolean
 }
 
 type User = {
@@ -205,6 +207,8 @@ export default function SettingsPage() {
     openClawApiKeySet: false,
     openClawAgentId: '',
     contextFiles: '[]',
+    replicateApiKey: '',
+    replicateApiKeySet: false,
   })
   const [loading, setLoading] = useState(true)
   const [saved, setSaved] = useState(false)
@@ -451,6 +455,33 @@ export default function SettingsPage() {
 
             </div>
           )}
+        </div>
+
+        {/* ── Image Generation ────────────────────────────── */}
+        <div className="rounded-xl border border-slate-800/60 bg-slate-900/60 p-6">
+          <h2 className="text-sm font-semibold text-slate-300 mb-1">Image Generation</h2>
+          <p className="text-xs text-slate-600 mb-4">
+            Used to generate concept art and maps directly from your project. Powered by{' '}
+            <span className="text-slate-400">FLUX Schnell</span> on Replicate — fast, high quality, ~$0.003/image.
+          </p>
+          <div>
+            <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
+              Replicate API Key
+              {form.replicateApiKeySet && (
+                <span className="ml-2 text-emerald-400 normal-case font-normal">✓ Key saved</span>
+              )}
+            </label>
+            <input
+              type="password"
+              value={form.replicateApiKey}
+              onChange={(e) => setForm({ ...form, replicateApiKey: e.target.value })}
+              placeholder={form.replicateApiKeySet ? 'Enter a new key to replace the saved one' : 'r8_…'}
+              className="mt-1 w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-violet-500/40 font-mono"
+            />
+            <p className="text-xs text-slate-600 mt-1">
+              Get your key at replicate.com/account/api-tokens · Stored on your server, never shared.
+            </p>
+          </div>
         </div>
 
         {/* ── Workspace Context Files ──────────────────────── */}

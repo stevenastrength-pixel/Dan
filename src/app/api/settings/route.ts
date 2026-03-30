@@ -20,6 +20,8 @@ export async function GET() {
       aiApiKeySet: settings.aiApiKey.length > 0,
       openClawApiKey: mask(settings.openClawApiKey),
       openClawApiKeySet: settings.openClawApiKey.length > 0,
+      replicateApiKey: mask((settings as any).replicateApiKey ?? ''),
+      replicateApiKeySet: ((settings as any).replicateApiKey ?? '').length > 0,
     })
   }
   return NextResponse.json({
@@ -33,6 +35,8 @@ export async function GET() {
     openClawApiKeySet: false,
     openClawAgentId: '',
     contextFiles: '[]',
+    replicateApiKey: '',
+    replicateApiKeySet: false,
   })
 }
 
@@ -51,7 +55,12 @@ export async function PUT(request: Request) {
       ? body.openClawApiKey
       : existing?.openClawApiKey ?? ''
 
-  const settings = await prisma.settings.upsert({
+  const newReplicateApiKey =
+    body.replicateApiKey && !isMasked(body.replicateApiKey)
+      ? body.replicateApiKey
+      : (existing as any)?.replicateApiKey ?? ''
+
+  const settings = await (prisma as any).settings.upsert({
     where: { id: 1 },
     update: {
       styleGuide: body.styleGuide ?? '',
@@ -62,6 +71,7 @@ export async function PUT(request: Request) {
       openClawApiKey: newOpenClawApiKey,
       openClawAgentId: body.openClawAgentId ?? '',
       contextFiles: body.contextFiles ?? '[]',
+      replicateApiKey: newReplicateApiKey,
     },
     create: {
       id: 1,
@@ -73,6 +83,7 @@ export async function PUT(request: Request) {
       openClawApiKey: newOpenClawApiKey,
       openClawAgentId: body.openClawAgentId ?? '',
       contextFiles: body.contextFiles ?? '[]',
+      replicateApiKey: newReplicateApiKey,
     },
   })
 
@@ -82,5 +93,7 @@ export async function PUT(request: Request) {
     aiApiKeySet: settings.aiApiKey.length > 0,
     openClawApiKey: mask(settings.openClawApiKey),
     openClawApiKeySet: settings.openClawApiKey.length > 0,
+    replicateApiKey: mask(settings.replicateApiKey ?? ''),
+    replicateApiKeySet: (settings.replicateApiKey ?? '').length > 0,
   })
 }
