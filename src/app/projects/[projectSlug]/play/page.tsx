@@ -727,6 +727,8 @@ export default function PlayPage() {
     setRun(null)
     setJoined(false)
     setConfirmWipe(false)
+    setInput('')
+    setDeathModal(null)
   }
 
   if (loading) {
