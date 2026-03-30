@@ -128,6 +128,17 @@ const CRAWLER_TOOLS: ToolDef[] = [
     description: 'Trigger the death handling flow for a player.',
     input_schema: { type: 'object', properties: { playerId: { type: 'number' }, playerName: { type: 'string' }, narrative: { type: 'string' } }, required: ['playerId', 'playerName', 'narrative'] },
   },
+  {
+    name: 'yield_turn',
+    description: 'Pause and hand control back to the players when you have used most of your tool budget or when you need player input to continue (e.g. mid-combat after resolving a round). Players will see your prompt and respond to continue. Use this instead of running out of tool calls.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        prompt: { type: 'string', description: 'Short message shown to players — e.g. "The goblin staggers — what do you do?" or "Round 2 begins. Declare your actions."' },
+      },
+      required: ['prompt'],
+    },
+  },
 ]
 
 // ─── Tool handler ─────────────────────────────────────────────────────────────
@@ -280,6 +291,12 @@ async function handleCrawlerTool(name: string, input: Record<string, unknown>, r
     return 'Death state logged.'
   }
 
+  if (name === 'yield_turn') {
+    const prompt = String(input.prompt ?? 'What do you do?')
+    await prisma.playRunLog.create({ data: { runId, type: 'system', content: prompt, speakerName: 'Daneel' } })
+    return 'Turn yielded. Awaiting player response.'
+  }
+
   return `Unknown tool: ${name}`
 }
 
@@ -383,6 +400,13 @@ Your job: narrate the campaign, respond to player actions, run combat, and guide
 - When a monster attacks, call monster_action to apply damage
 - When a player attacks, resolve_attack to apply the result
 - When combat ends, call end_combat
+
+## TOOL CALL BUDGET
+You have a maximum of 15 tool calls per player action. Plan accordingly:
+- Do not call narrate more than once per response
+- For multi-round combat, resolve ONE round per player action (player attacks, monsters retaliate, narrate the outcome), then call yield_turn to hand back to the players
+- If you need more rounds to finish combat, call yield_turn with a prompt like "Round 2 — what do you do?" so players can respond and you continue on their next message
+- Never run out of tool calls mid-combat without yielding — always call yield_turn before you hit the limit if you know more is needed
 
 ## Campaign Info
 ${project.description ?? ''}
