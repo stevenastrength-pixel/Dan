@@ -339,7 +339,7 @@ async function buildCrawlerPrompt(project: { id: number; name: string; descripti
   type Doc = { title: string; content: string }
   type Quest = { id: number; name: string; description: string | null }
   type Player = { characterName: string; username: string; currentHP: number; maxHP: number; tempHP: number; level: number; xp: number; deathState: string }
-  type Combatant = { id: number; name: string; currentHP: number; maxHP: number; AC: number; initiative: number; isDefeated: boolean }
+  type Combatant = { id: number; name: string; type: string; currentHP: number; maxHP: number; AC: number; initiative: number; isDefeated: boolean }
   type Explored = { keyedAreaId: number | null }
   type CharSheet = { username: string; attacks: string; inventory: string }
 
@@ -400,10 +400,17 @@ async function buildCrawlerPrompt(project: { id: number; name: string; descripti
     return `- **${p.characterName}** (${p.username}): HP ${p.currentHP}/${p.maxHP}${p.tempHP > 0 ? `+${p.tempHP}tmp` : ''}, Level ${p.level}, XP ${p.xp}, ${p.deathState !== 'alive' ? `**${p.deathState.toUpperCase()}**` : 'alive'}${attackSummary}${gearSummary}`
   }).join('\n')
 
-  // Combat state
-  const combatLines = run.inCombat && combatants.length > 0
-    ? `\n## Combat (Round ${run.roundNumber})\nFor each monster below, estimate attack bonus and damage from the creature name if not specified.\n` +
-      combatants.map(c => `- ${c.name} (id: ${c.id}): HP ${c.currentHP}/${c.maxHP}, AC ${c.AC}, initiative ${c.initiative}${c.isDefeated ? ' [DEFEATED]' : ''}`).join('\n')
+  // Combat state — show initiative tracker sorted by initiative desc
+  const livingCombatants = combatants.filter(c => !c.isDefeated)
+  const allCombatants = [...combatants].sort((a, b) => b.initiative - a.initiative)
+  const combatLines = run.inCombat && allCombatants.length > 0
+    ? `\n## ⚔️ COMBAT — Round ${run.roundNumber}\n` +
+      `Initiative order:\n` +
+      allCombatants.map((c, i) => {
+        const tag = c.isDefeated ? ' [DEFEATED]' : ''
+        return `  ${i + 1}. ${c.name} (id: ${c.id}, ${c.type === 'monster' ? 'monster' : 'player'}) — HP ${c.currentHP}/${c.maxHP}, AC ${c.AC}, initiative ${c.initiative}${tag}`
+      }).join('\n') +
+      `\n\nLiving enemies: ${livingCombatants.length}. Players act first, then all living monsters retaliate.`
     : ''
 
   // Campaign docs (trimmed)
@@ -448,37 +455,37 @@ These are hard rules. You MUST follow them every single response without excepti
 - "I do something" → interpret it generously, make a ruling, execute it with tools.
 - Asking the player a question before acting is a FAILURE. Make the ruling. Call the tools. Narrate the result.
 
-**YOU MUST USE roll_dice BEFORE EVERY ATTACK — NEVER invent or guess roll results:**
-The server generates real random numbers. You must call roll_dice to get them.
+**TURN-BASED COMBAT — one full round per player message, every time:**
 
-Player attacks (STRICT order):
-1. Call roll_dice(count=1, sides=20, modifier=[player's attack bonus], purpose="attack roll")
-2. Read the total from the result. Compare to target's AC. Hit if total ≥ AC.
-3. If hit: Call roll_dice with the damage dice for that weapon (e.g. longsword → count=1, sides=8, modifier=3; dagger → count=1, sides=4, modifier=2)
-4. Call resolve_attack with: attackRoll=<result from step 1>, targetAC=<target's AC>, damage=<result from step 3>
+This is D&D 5e turn-based combat. Each player message = one round. You execute the full round mechanically then hand control back. Never wait for permission. Never present options.
 
-Monster attacks (STRICT order):
-1. Estimate monster attack bonus from name (goblin ≈ +4, giant rat ≈ +3, orc ≈ +5, troll ≈ +7)
-2. Call roll_dice(count=1, sides=20, modifier=[estimated bonus], purpose="monster attack")
-3. If hit (result ≥ player's AC): Call roll_dice for damage (goblin → count=1, sides=6, modifier=2; giant rat → count=1, sides=4, modifier=1)
-4. Call monster_action with the rolled values
+ROUND SEQUENCE (execute every tool in this order, no skipping):
 
-Critical hits: if the raw d20 result (before modifier) was 20 → double the damage dice count.
-Critical miss: if the raw d20 result was 1 → automatic miss regardless of total.
+STEP 1 — PLAYER'S ACTION:
+  a. call roll_dice(count=1, sides=20, modifier=[attack bonus from Party section], purpose="attack roll")
+  b. Note the total. If total ≥ target's AC → HIT. If total < AC → MISS.
+  c. On a HIT: call roll_dice with the weapon's damage dice (longsword: 1d8+mod, shortsword: 1d6+mod, dagger: 1d4+mod, greatsword: 2d6+mod)
+  d. call resolve_attack(attackerName, targetName, targetId, attackRoll=<step a total>, targetAC, damage=<step c total>, narrative="one sentence")
+  Natural 20 = crit (double damage dice). Natural 1 = automatic miss.
 
-**Combat sequence per player action (strict order):**
-1. Call roll_dice → call resolve_attack for the player's declared action
-2. For each living monster: call roll_dice → call monster_action
-3. If all monsters defeated: call end_combat, award_xp, award_loot, mark_explored
-4. Call narrate ONCE describing the round based on tool results
-5. Call yield_turn to hand control back to players
+STEP 2 — EVERY LIVING MONSTER RETALIATES (do this for EACH one):
+  a. call roll_dice(count=1, sides=20, modifier=[monster bonus], purpose="[MonsterName] attack")
+     Monster bonuses: goblin/kobold +4, orc +5, skeleton +4, zombie +3, troll +7, dragon +10, giant rat +3
+  b. If total ≥ player's AC → HIT
+  c. On HIT: call roll_dice for damage (goblin: 1d6+2, orc: 1d8+3, skeleton: 1d6+2, zombie: 1d6+1, giant rat: 1d4+1)
+  d. call monster_action(monsterId, monsterName, targetPlayerId, targetName, attackRoll, targetAC, damage, narrative="one sentence")
+
+STEP 3 — CHECK COMBAT END:
+  If all monsters defeated → call end_combat, then award_xp, award_loot, mark_explored (in that order)
+
+STEP 4 — NARRATE:
+  call narrate ONCE. Two to four sentences covering what happened this round. Reference actual results from the tool responses (hit/miss, damage dealt, HP remaining). No menus, no options.
+
+STEP 5 — YIELD:
+  call yield_turn with ONE sentence: current round status + "What do you do?" e.g. "Round 2 — the goblin staggers at 2 HP. What do you do?"
 
 ## TOOL CALL BUDGET
-You have a maximum of 15 tool calls per player action. Plan accordingly:
-- Call narrate at most ONCE per response
-- Resolve ONE full round per response (player acts, monsters retaliate, outcome narrated), then yield
-- Call yield_turn BEFORE running out of tool calls if you know more rounds are needed
-- Never exhaust the budget mid-combat without yielding
+Maximum 15 tool calls per response. With 2 monsters that's: 2 roll_dice (player) + 1 resolve_attack + 4 roll_dice (monsters) + 2 monster_action + 1 narrate + 1 yield_turn = 11 calls. You have headroom. If you are running low, call yield_turn immediately.
 
 ## Campaign Info
 ${project.description ?? ''}
