@@ -124,14 +124,16 @@ export async function POST(
   ])
 
   // Campaign-only context
-  const [campaignQuests, campaignTimeline, campaignLocations, campaignCreatures] = isCampaign
+  const [campaignQuests, campaignTimeline, campaignLocations, campaignCreatures, campaignEncounters, campaignKeyedAreas] = isCampaign
     ? await Promise.all([
         prisma.quest.findMany({ where: { projectId: project.id }, orderBy: [{ questType: 'asc' }, { name: 'asc' }] }),
         prisma.timelineEvent.findMany({ where: { projectId: project.id }, orderBy: { inWorldDay: 'asc' }, take: 20 }),
         prisma.location.findMany({ where: { projectId: project.id }, orderBy: { name: 'asc' }, select: { id: true, name: true, locationType: true } }),
         prisma.campaignCreature.findMany({ where: { projectId: project.id }, orderBy: { name: 'asc' }, select: { id: true, name: true, CR: true, AC: true, HPAverage: true, creatureType: true, size: true } }),
+        prisma.encounter.findMany({ where: { projectId: project.id }, orderBy: { createdAt: 'asc' }, select: { id: true, name: true, encounterType: true, difficulty: true, locationId: true, keyedAreaId: true } }),
+        prisma.keyedArea.findMany({ where: { location: { projectId: project.id } }, orderBy: [{ locationId: 'asc' }, { order: 'asc' }], select: { id: true, key: true, title: true, locationId: true } }),
       ])
-    : [[], [], [], []]
+    : [[], [], [], [], [], []]
 
   const provider = (settings?.aiProvider ?? 'anthropic') as 'anthropic' | 'openai' | 'openclaw'
   const contextDocs = await loadContextFiles(settings?.contextFiles ?? '[]')
@@ -213,6 +215,24 @@ export async function POST(
         .join('\n')
     : 'No homebrew creatures defined yet.'
 
+  type LocEntry = { id: number; name: string; locationType: string }
+  const locMap = Object.fromEntries((campaignLocations as LocEntry[]).map(l => [l.id, l.name]))
+
+  const keyedAreaList = (campaignKeyedAreas as Array<{id: number; key: string; title: string; locationId: number}>).length > 0
+    ? (campaignKeyedAreas as Array<{id: number; key: string; title: string; locationId: number}>)
+        .map(a => `- **${a.key}${a.title ? ': ' + a.title : ''}** (id: ${a.id}, in: ${locMap[a.locationId] ?? 'unknown'})`)
+        .join('\n')
+    : 'No keyed areas defined yet.'
+
+  const encounterList = (campaignEncounters as Array<{id: number; name: string; encounterType: string; difficulty: string; locationId: number | null; keyedAreaId: number | null}>).length > 0
+    ? (campaignEncounters as Array<{id: number; name: string; encounterType: string; difficulty: string; locationId: number | null; keyedAreaId: number | null}>)
+        .map(e => {
+          const loc = e.locationId ? locMap[e.locationId] : null
+          return `- **${e.name}** (id: ${e.id}, ${e.encounterType}, ${e.difficulty}${loc ? `, in: ${loc}` : ''}${e.keyedAreaId ? `, keyedArea: ${e.keyedAreaId}` : ''})`
+        })
+        .join('\n')
+    : 'No encounters defined yet.'
+
   const systemPrompt = isCampaign
     ? `You are Daneel, GM co-author for the campaign "${project.name}". You are part of a collaborative team chat — multiple people use this to build the campaign book together.${project.description ? `\nCampaign: ${project.description}` : ''}
 ${campaignMeta}
@@ -276,6 +296,14 @@ ${questList}
 
 ## Timeline (villain's advancing plan)
 ${timelineList}
+
+## Keyed Areas
+These are numbered rooms/areas inside locations. Use their ids when calling create_encounter with a keyedAreaId.
+${keyedAreaList}
+
+## Encounters
+These are all encounters defined for this campaign. Use their ids when calling add_creature_to_encounter, update_encounter, or any other encounter operation. Never guess an encounter id — always read it from this list or from the tool result that created it.
+${encounterList}
 
 ## Homebrew Creatures
 These are custom monsters already created for this campaign. Reference their ids when calling add_creature_to_encounter. Use update_campaign_creature to modify an existing one rather than creating a duplicate.
