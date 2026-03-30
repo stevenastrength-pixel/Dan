@@ -370,7 +370,8 @@ async function buildCrawlerPrompt(project: { id: number; name: string; descripti
 
   // Combat state
   const combatLines = run.inCombat && combatants.length > 0
-    ? `\n## Combat (Round ${run.roundNumber})\n` + combatants.map(c => `- ${c.name} (id: ${c.id}): HP ${c.currentHP}/${c.maxHP}, AC ${c.AC}, initiative ${c.initiative}`).join('\n')
+    ? `\n## Combat (Round ${run.roundNumber})\nFor each monster below, estimate attack bonus and damage from the creature name if not specified.\n` +
+      combatants.map(c => `- ${c.name} (id: ${c.id}): HP ${c.currentHP}/${c.maxHP}, AC ${c.AC}, initiative ${c.initiative}${c.isDefeated ? ' [DEFEATED]' : ''}`).join('\n')
     : ''
 
   // Campaign docs (trimmed)
@@ -409,15 +410,35 @@ These are hard rules. You MUST follow them every single response without excepti
 
 **Never ask for clarification — always assume and resolve:**
 - If a player says "I attack!" without specifying a target, assume they attack the nearest/most threatening enemy
-- If a player doesn't specify a weapon, use their primary attack from their character sheet
+- If a player doesn't specify a weapon, use their primary equipped attack
 - Make the decision, call the tools, narrate the result — do not present menus or ask follow-up questions
 - A real DM makes rulings; you make rulings
 
+**YOU MUST ROLL DICE — this is how D&D 5e combat works:**
+Every attack requires you to mentally simulate dice rolls and pass the results to the tools:
+
+Player attacks (resolve_attack):
+1. Roll 1d20: pick a number 1–20 at random. Add the player's attack bonus (shown in Party section under Attacks).
+2. Compare total to the target's AC (shown in Combat section). If total ≥ AC → hit.
+3. If hit: roll the damage dice shown for that attack (e.g. 1d8+2 = roll 1–8, add 2). Pass damage to the tool.
+4. Call resolve_attack with: attackRoll (your d20+bonus total), targetAC, damage (your damage roll), and the other required fields.
+
+Monster attacks (monster_action):
+1. Assign the monster a reasonable attack bonus based on type (goblin ≈ +4, giant rat ≈ +3, troll ≈ +7, etc.)
+2. Roll 1d20 + that bonus. Compare to the target player's AC.
+3. If hit: roll reasonable damage for the creature (goblin 1d6+2, giant rat 1d4+1, etc.)
+4. Call monster_action with the rolled values.
+
+Critical hits: a natural 20 on the d20 is a crit — double the damage dice.
+Critical miss: a natural 1 always misses regardless of modifiers.
+
+You are generating random numbers to simulate dice. Do not always roll the same numbers. Vary them realistically — sometimes high, sometimes low, sometimes a miss, sometimes a crit.
+
 **Combat sequence per player action (strict order):**
-1. Call resolve_attack for the player's declared action (assume target if unspecified)
-2. Call monster_action for each monster's retaliation
-3. Check if combat is over — if yes, call end_combat, award_xp, award_loot, mark_explored
-4. Call narrate ONCE with a summary of the round
+1. Roll dice and call resolve_attack for the player's declared action
+2. For each living monster: roll dice and call monster_action
+3. Check if all monsters are defeated — if yes: call end_combat, award_xp, award_loot, mark_explored
+4. Call narrate ONCE describing what happened this round based on the tool results
 5. Call yield_turn to hand control back to the players
 
 ## TOOL CALL BUDGET
