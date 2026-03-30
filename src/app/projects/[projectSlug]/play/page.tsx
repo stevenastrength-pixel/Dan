@@ -607,6 +607,9 @@ export default function PlayPage() {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [currentUser, setCurrentUser] = useState<string>('')
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [isDm, setIsDm] = useState(false)
+  const [confirmWipe, setConfirmWipe] = useState(false)
   const [deathModal, setDeathModal] = useState<{ playerId: number; playerName: string } | null>(null)
   const [showDrawer, setShowDrawer] = useState(false)
   const [talkToDaneel, setTalkToDaneel] = useState(true)
@@ -614,7 +617,15 @@ export default function PlayPage() {
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
-    fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(u => { if (u) setCurrentUser(u.username) })
+    fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(u => {
+      if (!u) return
+      setCurrentUser(u.username)
+      setIsAdmin(u.role === 'admin')
+      fetch(`/api/projects/${slug}/party`).then(r => r.ok ? r.json() : []).then((members: Array<{ username: string; role: string }>) => {
+        const me = members.find(m => m.username.toLowerCase() === u.username.toLowerCase())
+        setIsDm(me?.role === 'dm')
+      })
+    })
   }, [])
 
   const fetchRun = useCallback(async () => {
@@ -715,10 +726,10 @@ export default function PlayPage() {
   }
 
   const wipeRun = async () => {
-    if (!confirm('Are you sure you want to wipe this run? All progress will be lost.')) return
     await fetch(`/api/projects/${slug}/play-run`, { method: 'DELETE' })
     setRun(null)
     setJoined(false)
+    setConfirmWipe(false)
   }
 
   if (loading) {
@@ -749,6 +760,29 @@ export default function PlayPage() {
           )}
           <div className="ml-auto flex items-center gap-2">
             {me && <span className="text-[10px] text-slate-500 hidden sm:inline">{me.characterName} · {me.currentHP}/{me.maxHP} HP</span>}
+
+            {/* Wipe run — DM / admin only */}
+            {(isDm || isAdmin) && (
+              confirmWipe ? (
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] text-red-400 hidden sm:inline">Wipe all progress?</span>
+                  <button onClick={wipeRun}
+                    className="px-2.5 py-1 text-[10px] font-semibold text-red-400 border border-red-500/40 bg-red-500/10 hover:bg-red-500/20 rounded-lg transition-colors">
+                    Confirm
+                  </button>
+                  <button onClick={() => setConfirmWipe(false)}
+                    className="px-2 py-1 text-[10px] text-slate-500 hover:text-slate-300 transition-colors">
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => setConfirmWipe(true)}
+                  className="px-2.5 py-1 text-[10px] text-slate-600 border border-slate-800 hover:text-red-400 hover:border-red-500/30 rounded-lg transition-colors">
+                  Wipe Run
+                </button>
+              )
+            )}
+
             <button onClick={() => setShowDrawer(v => !v)}
               className={`w-8 h-8 flex items-center justify-center rounded-lg border transition-colors text-base ${showDrawer ? 'border-violet-500/40 text-violet-400 bg-violet-500/10' : 'border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600'}`}
               title="Character & Journal">
