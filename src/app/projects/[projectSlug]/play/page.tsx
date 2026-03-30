@@ -190,15 +190,21 @@ function JoinScreen({ slug, onJoined }: { slug: string; onJoined: (run: PlayRun)
   const join = async () => {
     setLoading(true)
     setError('')
-    const res = await fetch(`/api/projects/${slug}/play-run`, { method: 'POST' })
-    if (!res.ok) {
-      const data = await res.json()
-      setError(data.error ?? 'Failed to join.')
+    try {
+      const res = await fetch(`/api/projects/${slug}/play-run`, { method: 'POST' })
+      const text = await res.text()
+      if (!res.ok) {
+        let msg = 'Failed to join.'
+        try { msg = JSON.parse(text).error ?? msg } catch {}
+        setError(msg)
+        setLoading(false)
+        return
+      }
+      onJoined(JSON.parse(text))
+    } catch (e) {
+      setError(`Server error: ${e instanceof Error ? e.message : String(e)}`)
       setLoading(false)
-      return
     }
-    const run = await res.json()
-    onJoined(run)
   }
 
   return (
@@ -291,15 +297,17 @@ export default function PlayPage() {
     }
     setRun(prev => prev ? { ...prev, log: [...prev.log, tempEntry] } : prev)
 
-    const res = await fetch(`/api/projects/${slug}/play-run/action`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
-    })
-    if (res.ok) {
-      const updated = await res.json()
-      setRun(updated)
-    }
+    try {
+      const res = await fetch(`/api/projects/${slug}/play-run/action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      })
+      const resText = await res.text()
+      if (res.ok && resText) {
+        try { setRun(JSON.parse(resText)) } catch {}
+      }
+    } catch {}
     setSending(false)
     inputRef.current?.focus()
   }
